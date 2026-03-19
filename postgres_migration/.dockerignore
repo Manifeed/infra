@@ -1,0 +1,5 @@
+.git
+.env
+backups
+__pycache__
+alembic/__pycache__

@@ -11,6 +11,10 @@ Manifeed_multiRepo/
 ├── docs/
 ├── frontend/
 ├── infra/
+│   ├── postgres_migration/
+│   ├── backups/
+│   ├── docker-compose.yml
+│   └── Makefile
 └── workers/
 ```
 
@@ -24,6 +28,9 @@ make help
 make up
 ```
 
+`make up` lance PostgreSQL, applique les migrations Alembic via le service `db_migrations`,
+puis demarre le backend et le frontend.
+
 Services exposes par defaut :
 
 - backend : `http://localhost:8000`
@@ -36,6 +43,7 @@ Services exposes par defaut :
 ```bash
 make logs
 make up SERVICE=backend
+make up SERVICE=db_migrations
 make db-migrate
 make db-backup
 make db-recreate-from-sql SQL_FILE=./backups/manifeed_dump.sql
@@ -54,6 +62,15 @@ make export-openapi
 - `RSS_FEEDS_HOST_PATH`
 
 Les valeurs par defaut pointent vers les repos freres sous `../`.
+
+## Base de donnees et migrations
+
+L'infra porte les operations de maintenance PostgreSQL :
+
+- les fichiers de migration vivent dans `infra/postgres_migration/`
+- `make db-migrate` applique ces revisions via le service `db_migrations`
+- `make db-reset` recree le schema `public` avec `psql`, puis reapplique les migrations
+- `make db-backup` et `make db-restore` manipulent directement PostgreSQL depuis `infra`
 
 ## Sauvegarde et restauration SQL
 

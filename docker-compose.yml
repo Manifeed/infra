@@ -18,7 +18,28 @@ services:
     networks:
       - manifeed_internal
 
+  db_migrations:
+    image: manifeed_db_migrations:local
+    build:
+      context: ./postgres_migration
+      dockerfile: Dockerfile
+      provenance: false
+      sbom: false
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-manifeed}:${POSTGRES_PASSWORD:-manifeed}@postgres:5432/${POSTGRES_DB:-manifeed}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["alembic", "-c", "alembic.ini", "upgrade", "head"]
+    volumes:
+      - ./postgres_migration/alembic:/app/alembic:z
+      - ./postgres_migration/alembic.ini:/app/alembic.ini:z
+    networks:
+      - manifeed_internal
+    restart: "no"
+
   backend:
+    image: manifeed_backend:local
     build:
       context: ${BACKEND_REPO_PATH:-../backend}
       dockerfile: Dockerfile

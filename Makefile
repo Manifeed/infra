@@ -13,12 +13,14 @@ RUST_LINUX_X86_TARGET := x86_64-unknown-linux-gnu
 DB_BACKUP_DIR ?= ./backups
 DB_BACKUP_FILE ?= $(DB_BACKUP_DIR)/manifeed_$(shell date +%Y%m%d_%H%M%S).sql
 SQL_FILE ?=
+DB_MIGRATION_SERVICE ?= db_migrations
 
 .PHONY: help up build down restart logs clean clean-all db-migrate db-reset db-backup db-recreate-from-sql db-restore test-backend test-worker test-worker-rss test-worker-embedding build-worker-rss-native run-worker-rss-native build-worker-embedding-linux-x86 run-worker-embedding-linux-x86 bundle-worker-embedding-linux export-openapi check-cargo
 
 help:
 	@printf '%s\n' 'Available targets:'
 	@printf '%s\n' '  make up [SERVICE=name]'
+	@printf '%s\n' '  make up SERVICE=db_migrations'
 	@printf '%s\n' '  make down'
 	@printf '%s\n' '  make logs [SERVICE=name]'
 	@printf '%s\n' '  make db-migrate'
@@ -33,9 +35,24 @@ help:
 
 up:
 	@if [ -n "$(SERVICE)" ]; then \
-		$(DC) up -d $(SERVICE) --build; \
+		case "$(SERVICE)" in \
+			backend|frontend_admin) \
+				$(DC) up -d postgres; \
+				$(DC) run --rm --no-deps --build $(DB_MIGRATION_SERVICE); \
+				$(DC) up -d $(SERVICE) --build; \
+				;; \
+			$(DB_MIGRATION_SERVICE)) \
+				$(DC) up -d postgres; \
+				$(DC) run --rm --no-deps --build $(DB_MIGRATION_SERVICE); \
+				;; \
+			*) \
+				$(DC) up -d $(SERVICE) --build; \
+				;; \
+		esac; \
 	else \
-		$(DC) up -d --build; \
+		$(DC) up -d postgres; \
+		$(DC) run --rm --no-deps --build $(DB_MIGRATION_SERVICE); \
+		$(DC) up -d --build backend frontend_admin; \
 	fi
 
 build:
@@ -83,14 +100,14 @@ clean-all:
 
 db-migrate:
 	$(DC) up -d postgres
-	$(DC) run --rm --no-deps backend python -c "from app.services.migration_service import run_db_migrations; run_db_migrations()"
+	$(DC) run --rm --no-deps --build $(DB_MIGRATION_SERVICE)
 
 db-reset:
 	$(DC) up -d postgres
 	$(DC) stop backend
-	$(DC) run --rm --no-deps backend python -c "from sqlalchemy import create_engine, text; import os; engine=create_engine(os.environ['DATABASE_URL']); conn=engine.connect(); trans=conn.begin(); conn.execute(text('DROP SCHEMA IF EXISTS public CASCADE')); conn.execute(text('CREATE SCHEMA public')); trans.commit(); conn.close()"
-	$(DC) run --rm --no-deps backend python -c "from app.services.migration_service import run_db_migrations; run_db_migrations()"
-	$(DC) up -d backend
+	$(DC) exec -T postgres sh -lc 'psql -v ON_ERROR_STOP=1 -U "$${POSTGRES_USER:-manifeed}" -d "$${POSTGRES_DB:-manifeed}" -c "DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;"'
+	$(DC) run --rm --no-deps --build $(DB_MIGRATION_SERVICE)
+	$(DC) up -d --build backend
 
 db-backup:
 	@backup_file="$(DB_BACKUP_FILE)"; \
