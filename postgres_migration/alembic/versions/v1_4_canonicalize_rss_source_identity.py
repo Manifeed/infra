@@ -363,62 +363,6 @@ def upgrade() -> None:
 
     op.execute(
         """
-        INSERT INTO embedding_projection_points (
-            projection_id,
-            source_id,
-            x,
-            y,
-            embedding_updated_at,
-            projected_at
-        )
-        SELECT DISTINCT ON (point.projection_id, map.canonical_source_id)
-            point.projection_id,
-            map.canonical_source_id,
-            point.x,
-            point.y,
-            point.embedding_updated_at,
-            point.projected_at
-        FROM embedding_projection_points AS point
-        JOIN tmp_rss_source_canonical_map AS map
-            ON map.source_id = point.source_id
-        ORDER BY
-            point.projection_id ASC,
-            map.canonical_source_id ASC,
-            point.embedding_updated_at DESC,
-            point.projected_at DESC,
-            point.source_id ASC
-        ON CONFLICT (projection_id, source_id) DO UPDATE SET
-            x = CASE
-                WHEN EXCLUDED.embedding_updated_at >= embedding_projection_points.embedding_updated_at
-                    THEN EXCLUDED.x
-                ELSE embedding_projection_points.x
-            END,
-            y = CASE
-                WHEN EXCLUDED.embedding_updated_at >= embedding_projection_points.embedding_updated_at
-                    THEN EXCLUDED.y
-                ELSE embedding_projection_points.y
-            END,
-            embedding_updated_at = GREATEST(
-                embedding_projection_points.embedding_updated_at,
-                EXCLUDED.embedding_updated_at
-            ),
-            projected_at = GREATEST(
-                embedding_projection_points.projected_at,
-                EXCLUDED.projected_at
-            )
-        """
-    )
-    op.execute(
-        """
-        DELETE FROM embedding_projection_points AS point
-        USING tmp_rss_source_canonical_map AS map
-        WHERE point.source_id = map.source_id
-            AND map.source_id <> map.canonical_source_id
-        """
-    )
-
-    op.execute(
-        """
         DELETE FROM rss_sources AS source
         USING tmp_rss_source_canonical_map AS map
         WHERE source.id = map.source_id
