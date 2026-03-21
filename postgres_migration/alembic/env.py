@@ -13,10 +13,13 @@ if config.config_file_name is not None:
 
 
 def get_database_url() -> str:
-    return os.getenv(
+    database_url = os.getenv(
         "DATABASE_URL",
         "postgresql://manifeed:manifeed@localhost:5432/manifeed",
     )
+    if database_url.startswith("postgresql://") and "+psycopg" not in database_url:
+        return database_url.replace("postgresql://", "postgresql+psycopg://", 1)
+    return database_url
 
 
 target_metadata = None
