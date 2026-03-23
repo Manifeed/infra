@@ -48,9 +48,10 @@ services:
     container_name: manifeed_backend
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-manifeed}:${POSTGRES_PASSWORD:-manifeed}@postgres:5432/${POSTGRES_DB:-manifeed}
-      EMBEDDING_MODEL_NAME: ${EMBEDDING_MODEL_NAME:-Xenova/multilingual-e5-large}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
       RSS_FEEDS_REPOSITORY_PATH: ${RSS_FEEDS_REPOSITORY_PATH:-/rss_feeds}
+      SOURCE_EMBEDDING_WORKER_VERSION: ${SOURCE_EMBEDDING_WORKER_VERSION:-e5-large-v1}
+      WORKER_RELEASE_MANIFEST_PATH: /app/config/worker_release_manifest.dev.json
     depends_on:
       postgres:
         condition: service_healthy
