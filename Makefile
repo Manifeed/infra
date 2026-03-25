@@ -14,8 +14,10 @@ DB_BACKUP_DIR ?= ./backups
 DB_BACKUP_FILE ?= $(DB_BACKUP_DIR)/manifeed_$(shell date +%Y%m%d_%H%M%S).sql
 SQL_FILE ?=
 DB_MIGRATION_SERVICE ?= db_migrations
+QDRANT_BACKUP_DIR ?= ./backups/qdrant
+QDRANT_SNAPSHOT_FILE ?=
 
-.PHONY: help up build down restart logs clean clean-all db-migrate db-reset db-backup db-recreate-from-sql db-restore test-backend test-worker test-worker-rss test-worker-embedding build-worker-rss-native run-worker-rss-native build-worker-embedding-linux-x86 run-worker-embedding-linux-x86 bundle-worker-embedding-linux export-openapi check-cargo
+.PHONY: help up build down restart logs clean clean-all db-migrate db-reset db-backup db-recreate-from-sql db-restore qdrant-backup qdrant-restore test-backend test-worker test-worker-rss test-worker-embedding build-worker-rss-native run-worker-rss-native build-worker-embedding-linux-x86 run-worker-embedding-linux-x86 bundle-worker-embedding-linux export-openapi check-cargo
 
 help:
 	@printf '%s\n' 'Available targets:'
@@ -28,6 +30,8 @@ help:
 	@printf '%s\n' '  make db-backup [DB_BACKUP_FILE=./backups/file.sql]'
 	@printf '%s\n' '  make db-recreate-from-sql SQL_FILE=./backups/file.sql'
 	@printf '%s\n' '  make db-restore SQL_FILE=./backups/file.sql'
+	@printf '%s\n' '  make qdrant-backup [QDRANT_BACKUP_DIR=./backups/qdrant]'
+	@printf '%s\n' '  make qdrant-restore QDRANT_SNAPSHOT_FILE=./backups/qdrant/your.snapshot'
 	@printf '%s\n' '  make test-backend'
 	@printf '%s\n' '  make test-worker'
 	@printf '%s\n' '  make test-worker-embedding'
@@ -133,6 +137,75 @@ db-recreate-from-sql:
 	@printf 'Database restored from %s\n' "$(SQL_FILE)"
 
 db-restore: db-recreate-from-sql
+
+qdrant-backup:
+	@set -e; \
+	if [ -f .env ]; then set -a; . ./.env; set +a; fi; \
+	port="$${QDRANT_PORT:-6333}"; \
+	coll="$${QDRANT_COLLECTION_NAME:-article_embeddings}"; \
+	backup_dir="$(QDRANT_BACKUP_DIR)"; \
+	mkdir -p "$$backup_dir"; \
+	$(DC) up -d qdrant; \
+	sleep 2; \
+	base_url="http://127.0.0.1:$$port"; \
+	if [ -n "$$QDRANT_API_KEY" ]; then \
+		coll_http=$$(curl -sS -o /dev/null -w '%{http_code}' -H "api-key: $$QDRANT_API_KEY" "$$base_url/collections/$$coll"); \
+	else \
+		coll_http=$$(curl -sS -o /dev/null -w '%{http_code}' "$$base_url/collections/$$coll"); \
+	fi; \
+	if [ "$$coll_http" = "404" ]; then \
+		printf 'qdrant-backup skipped: collection "%s" does not exist yet (POST /snapshots returns 404). Index at least one embedding or fix QDRANT_COLLECTION_NAME.\n' "$$coll"; \
+		exit 0; \
+	fi; \
+	if [ "$$coll_http" != "200" ]; then \
+		printf 'qdrant-backup failed: GET %s/collections/%s returned HTTP %s\n' "$$base_url" "$$coll" "$$coll_http"; \
+		exit 1; \
+	fi; \
+	if [ -n "$$QDRANT_API_KEY" ]; then \
+		create_json=$$(curl -sS -f -X POST "$$base_url/collections/$$coll/snapshots?wait=true" -H "api-key: $$QDRANT_API_KEY"); \
+	else \
+		create_json=$$(curl -sS -f -X POST "$$base_url/collections/$$coll/snapshots?wait=true"); \
+	fi; \
+	snap_name=$$(printf '%s' "$$create_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["result"]["name"])'); \
+	ts=$$(date +%Y%m%d_%H%M%S); \
+	out_file="$$backup_dir/$${coll}_$${ts}_$${snap_name}"; \
+	if [ -n "$$QDRANT_API_KEY" ]; then \
+		curl -sS -f -o "$$out_file" "$$base_url/collections/$$coll/snapshots/$$snap_name" -H "api-key: $$QDRANT_API_KEY"; \
+	else \
+		curl -sS -f -o "$$out_file" "$$base_url/collections/$$coll/snapshots/$$snap_name"; \
+	fi; \
+	printf 'Qdrant snapshot written to %s\n' "$$out_file"
+
+qdrant-restore:
+	@if [ -z "$(QDRANT_SNAPSHOT_FILE)" ]; then \
+		echo "Usage: make qdrant-restore QDRANT_SNAPSHOT_FILE=./backups/qdrant/article_embeddings_YYYYMMDD_HHMMSS_....snapshot"; \
+		exit 1; \
+	fi
+	@if [ ! -f "$(QDRANT_SNAPSHOT_FILE)" ]; then \
+		echo "QDRANT_SNAPSHOT_FILE not found: $(QDRANT_SNAPSHOT_FILE)"; \
+		exit 1; \
+	fi
+	@set -e; \
+	if [ -f .env ]; then set -a; . ./.env; set +a; fi; \
+	port="$${QDRANT_PORT:-6333}"; \
+	coll="$${QDRANT_COLLECTION_NAME:-article_embeddings}"; \
+	base_url="http://127.0.0.1:$$port"; \
+	snapfile="$(QDRANT_SNAPSHOT_FILE)"; \
+	$(DC) stop backend || true; \
+	$(DC) up -d qdrant; \
+	sleep 2; \
+	if [ -n "$$QDRANT_API_KEY" ]; then \
+		curl -sS -f --connect-timeout 10 --max-time 3600 \
+			-X POST "$$base_url/collections/$$coll/snapshots/upload?wait=true&priority=snapshot" \
+			-H "api-key: $$QDRANT_API_KEY" \
+			-F "snapshot=@$$snapfile"; \
+	else \
+		curl -sS -f --connect-timeout 10 --max-time 3600 \
+			-X POST "$$base_url/collections/$$coll/snapshots/upload?wait=true&priority=snapshot" \
+			-F "snapshot=@$$snapfile"; \
+	fi; \
+	$(DC) up -d backend; \
+	printf 'Qdrant collection %s restored from %s\n' "$$coll" "$$snapfile"
 
 test-backend:
 	$(DC) run --rm --no-deps --build backend sh -lc "PIP_ROOT_USER_ACTION=ignore python -m pip install --disable-pip-version-check --quiet pytest && python -m pytest $(BACKEND_PYTEST_ARGS)"
