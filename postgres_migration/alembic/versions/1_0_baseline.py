@@ -18,8 +18,19 @@ down_revision = None
 branch_labels = None
 depends_on = None
 
+_RSS_FEED_RUNTIME_STATUS_ENUM = postgresql.ENUM(
+    "pending",
+    "success",
+    "not_modified",
+    "error",
+    name="rss_feed_runtime_status",
+    create_type=False,
+)
+
 
 def upgrade() -> None:
+    bind = op.get_bind()
+    _RSS_FEED_RUNTIME_STATUS_ENUM.create(bind, checkfirst=True)
     _create_rss_catalog_tables()
     _create_auth_tables()
     _create_worker_gateway_tables()
@@ -35,10 +46,11 @@ def downgrade() -> None:
         ("idx_worker_tasks_task_type_status_requested_at", "worker_tasks"),
         ("idx_worker_jobs_requested_at", "worker_jobs"),
         ("idx_embedding_manifest_article_key_status", "embedding_manifest"),
-        ("idx_article_feed_links_feed_id_last_seen_at", "article_feed_links"),
+        ("idx_article_authors_article_id_position", "article_authors"),
+        ("idx_article_authors_author_id_article_id", "article_authors"),
+        ("idx_article_feed_links_feed_id_article_id", "article_feed_links"),
         ("idx_articles_company_id_published_at", "articles"),
         ("idx_articles_published_at_brin", "articles"),
-        ("idx_articles_shard_id_article_id", "articles"),
         ("idx_worker_leases_task_type_expires_at", "worker_leases"),
         ("idx_worker_leases_session_expires_at", "worker_leases"),
         ("idx_worker_sessions_api_key_expires_at", "worker_sessions"),
@@ -48,7 +60,6 @@ def downgrade() -> None:
         ("idx_user_sessions_user_id", "user_sessions"),
         ("idx_rss_feed_tags_tag_id", "rss_feed_tags"),
         ("idx_rss_feed_runtime_last_article_published_at", "rss_feed_runtime"),
-        ("idx_rss_feed_runtime_last_success_at", "rss_feed_runtime"),
         ("idx_rss_feed_runtime_last_status", "rss_feed_runtime"),
         ("idx_rss_feeds_enabled", "rss_feeds"),
         ("idx_rss_feeds_company_id", "rss_feeds"),
@@ -61,6 +72,8 @@ def downgrade() -> None:
         "worker_tasks",
         "worker_jobs",
         "embedding_manifest",
+        "article_authors",
+        "authors",
         "article_feed_links",
         "articles",
         "worker_leases",
@@ -76,6 +89,8 @@ def downgrade() -> None:
         "rss_company",
     ):
         op.drop_table(table_name)
+
+    _RSS_FEED_RUNTIME_STATUS_ENUM.drop(op.get_bind(), checkfirst=True)
 
 
 def _create_rss_catalog_tables() -> None:
@@ -125,28 +140,31 @@ def _create_rss_catalog_tables() -> None:
     op.create_table(
         "rss_feed_runtime",
         sa.Column("feed_id", sa.Integer(), primary_key=True),
-        sa.Column("last_status", sa.String(length=32), nullable=False, server_default=sa.text("'pending'")),
         sa.Column("last_scraped_at", sa.DateTime(timezone=True), nullable=True),
-        sa.Column("last_success_at", sa.DateTime(timezone=True), nullable=True),
-        sa.Column("last_error_at", sa.DateTime(timezone=True), nullable=True),
-        sa.Column("last_error_message", sa.Text(), nullable=True),
-        sa.Column("consecutive_error_count", sa.Integer(), nullable=False, server_default=sa.text("0")),
+        sa.Column(
+            "last_status",
+            _RSS_FEED_RUNTIME_STATUS_ENUM,
+            nullable=False,
+            server_default=sa.text("'pending'::rss_feed_runtime_status"),
+        ),
         sa.Column("etag", sa.String(length=255), nullable=True),
         sa.Column("last_feed_update", sa.DateTime(timezone=True), nullable=True),
         sa.Column("last_article_published_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("consecutive_error_count", sa.Integer(), nullable=False, server_default=sa.text("0")),
+        sa.Column("last_error_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("last_error_code", sa.Integer(), nullable=True),
+        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")),
         sa.CheckConstraint(
             "consecutive_error_count >= 0",
             name="ck_rss_feed_runtime_consecutive_error_count",
         ),
+        sa.CheckConstraint(
+            "last_error_code IS NULL OR (last_error_code >= 100 AND last_error_code <= 599)",
+            name="ck_rss_feed_runtime_last_error_code",
+        ),
         sa.ForeignKeyConstraint(["feed_id"], ["rss_feeds.id"], ondelete="CASCADE"),
     )
     op.create_index("idx_rss_feed_runtime_last_status", "rss_feed_runtime", ["last_status"], unique=False)
-    op.create_index(
-        "idx_rss_feed_runtime_last_success_at",
-        "rss_feed_runtime",
-        ["last_success_at"],
-        unique=False,
-    )
     op.create_index(
         "idx_rss_feed_runtime_last_article_published_at",
         "rss_feed_runtime",
@@ -291,24 +309,17 @@ def _create_article_storage_tables() -> None:
         "articles",
         sa.Column("article_id", sa.BigInteger(), primary_key=True, autoincrement=True),
         sa.Column("article_key", sa.CHAR(length=64), nullable=False),
-        sa.Column("shard_id", sa.Integer(), nullable=False),
         sa.Column("published_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("ingested_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")),
         sa.Column("canonical_url", sa.String(length=1000), nullable=True),
         sa.Column("title", sa.Text(), nullable=True),
         sa.Column("summary", sa.Text(), nullable=True),
-        sa.Column("author", sa.Text(), nullable=True),
         sa.Column("image_url", sa.String(length=1000), nullable=True),
         sa.Column("language", sa.String(length=16), nullable=True),
         sa.Column("company_id", sa.Integer(), nullable=True),
-        sa.Column("first_seen_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")),
-        sa.Column("last_seen_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")),
-        sa.Column("last_rss_job_at", sa.DateTime(timezone=True), nullable=True),
-        sa.CheckConstraint("shard_id >= 0", name="ck_articles_shard_id"),
         sa.ForeignKeyConstraint(["company_id"], ["rss_company.id"], ondelete="SET NULL"),
         sa.UniqueConstraint("article_key", name="uq_articles_article_key"),
     )
-    op.create_index("idx_articles_shard_id_article_id", "articles", ["shard_id", "article_id"], unique=False)
     op.create_index(
         "idx_articles_published_at_brin",
         "articles",
@@ -324,21 +335,49 @@ def _create_article_storage_tables() -> None:
     )
 
     op.create_table(
+        "authors",
+        sa.Column("id", sa.BigInteger(), primary_key=True, autoincrement=True),
+        sa.Column("normalized_name", sa.Text(), nullable=False),
+        sa.Column("display_name", sa.Text(), nullable=False),
+        sa.UniqueConstraint("normalized_name", name="uq_authors_normalized_name"),
+    )
+
+    op.create_table(
+        "article_authors",
+        sa.Column("article_id", sa.BigInteger(), nullable=False),
+        sa.Column("author_id", sa.BigInteger(), nullable=False),
+        sa.Column("position", sa.SmallInteger(), nullable=False),
+        sa.ForeignKeyConstraint(["article_id"], ["articles.article_id"], ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(["author_id"], ["authors.id"], ondelete="CASCADE"),
+        sa.PrimaryKeyConstraint("article_id", "author_id"),
+        sa.UniqueConstraint("article_id", "position", name="uq_article_authors_article_position"),
+    )
+    op.create_index(
+        "idx_article_authors_author_id_article_id",
+        "article_authors",
+        ["author_id", "article_id"],
+        unique=False,
+    )
+    op.create_index(
+        "idx_article_authors_article_id_position",
+        "article_authors",
+        ["article_id", "position"],
+        unique=False,
+    )
+
+    op.create_table(
         "article_feed_links",
         sa.Column("article_id", sa.BigInteger(), nullable=False),
         sa.Column("feed_id", sa.Integer(), nullable=False),
         sa.Column("first_seen_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")),
-        sa.Column("last_seen_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")),
-        sa.Column("last_job_trace_id", sa.String(length=64), nullable=True),
-        sa.Column("last_fetch_status", sa.String(length=32), nullable=True),
         sa.ForeignKeyConstraint(["article_id"], ["articles.article_id"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(["feed_id"], ["rss_feeds.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("article_id", "feed_id"),
     )
     op.create_index(
-        "idx_article_feed_links_feed_id_last_seen_at",
+        "idx_article_feed_links_feed_id_article_id",
         "article_feed_links",
-        ["feed_id", "last_seen_at"],
+        ["feed_id", "article_id"],
         unique=False,
     )
 
