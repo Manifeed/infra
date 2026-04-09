@@ -81,9 +81,7 @@ services:
       QDRANT_COLLECTION_NAME: ${QDRANT_COLLECTION_NAME:-article_embeddings}
       SOURCE_EMBEDDING_DIMENSIONS: ${SOURCE_EMBEDDING_DIMENSIONS:-1024}
       RSS_FEEDS_REPOSITORY_PATH: ${RSS_FEEDS_REPOSITORY_PATH:-/rss_feeds}
-      RSS_WORKER_VERSION: ${RSS_WORKER_VERSION:-0.1.0}
-      SOURCE_EMBEDDING_WORKER_VERSION: ${SOURCE_EMBEDDING_WORKER_VERSION:-e5-large-v1}
-      WORKER_RELEASE_MANIFEST_PATH: /app/config/worker_release_manifest.dev.json
+      WORKER_RELEASE_CATALOG_PATH: /app/var/worker-releases/catalog.json
     depends_on:
       postgres:
         condition: service_healthy

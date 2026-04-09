@@ -17,7 +17,7 @@ DB_MIGRATION_SERVICE ?= db_migrations
 QDRANT_BACKUP_DIR ?= ./backups/qdrant
 QDRANT_SNAPSHOT_FILE ?=
 
-.PHONY: help up build down restart logs clean clean-all db-migrate db-reset db-backup db-recreate-from-sql db-restore qdrant-backup qdrant-restore test-backend test-worker test-worker-rss test-worker-embedding build-worker-rss-native run-worker-rss-native build-worker-embedding-linux-x86 run-worker-embedding-linux-x86 bundle-worker-embedding-linux export-openapi check-cargo
+.PHONY: help up build down restart logs clean clean-all db-migrate db-reset db-backup db-recreate-from-sql db-restore qdrant-backup qdrant-restore test-backend test-worker test-worker-rss test-worker-embedding build-worker-rss-native run-worker-rss-native build-worker-embedding-linux-x86 run-worker-embedding-linux-x86 release-workers release-workers-desktop release-workers-rss release-workers-embedding export-openapi check-cargo
 
 help:
 	@printf '%s\n' 'Available targets:'
@@ -35,6 +35,10 @@ help:
 	@printf '%s\n' '  make test-backend'
 	@printf '%s\n' '  make test-worker'
 	@printf '%s\n' '  make test-worker-embedding'
+	@printf '%s\n' '  make release-workers [RELEASE_WORKER_FAMILIES="desktop rss embedding"]'
+	@printf '%s\n' '  make release-workers-desktop'
+	@printf '%s\n' '  make release-workers-rss'
+	@printf '%s\n' '  make release-workers-embedding'
 	@printf '%s\n' '  make export-openapi'
 
 up:
@@ -237,8 +241,17 @@ build-worker-embedding-linux-x86: check-cargo
 run-worker-embedding-linux-x86: build-worker-embedding-linux-x86
 	$(WORKERS_REPO_PATH)/target/$(RUST_LINUX_X86_TARGET)/release/worker-source-embedding
 
-bundle-worker-embedding-linux: check-cargo
-	cd $(WORKERS_REPO_PATH) && ./installers/linux/worker-source-embedding/build-bundle.sh
+release-workers: check-cargo
+	cd $(WORKERS_REPO_PATH) && bash ./installers/release-workers.sh $(foreach family,$(RELEASE_WORKER_FAMILIES),--family $(family))
+
+release-workers-desktop: check-cargo
+	cd $(WORKERS_REPO_PATH) && bash ./installers/release-workers.sh --family desktop
+
+release-workers-rss: check-cargo
+	cd $(WORKERS_REPO_PATH) && bash ./installers/release-workers.sh --family rss
+
+release-workers-embedding: check-cargo
+	cd $(WORKERS_REPO_PATH) && bash ./installers/release-workers.sh --family embedding
 
 export-openapi:
 	MANIFEED_BACKEND_PATH=$(BACKEND_REPO_PATH) $(API_REPO_PATH)/scripts/export_openapi.sh
