@@ -3,6 +3,7 @@ DC := $(COMPOSE) -f docker-compose.yml
 CARGO ?= $(shell if command -v cargo >/dev/null 2>&1; then command -v cargo; elif [ -x "$(HOME)/.cargo/bin/cargo" ]; then printf '%s' "$(HOME)/.cargo/bin/cargo"; else printf '%s' cargo; fi)
 .DEFAULT_GOAL := help
 SERVICE ?=
+WEB_STACK_SERVICES := backend frontend_admin app_gateway
 BACKEND_REPO_PATH ?= ../backend
 WORKERS_REPO_PATH ?= ../workers
 API_REPO_PATH ?= ../api
@@ -23,6 +24,7 @@ help:
 	@printf '%s\n' 'Available targets:'
 	@printf '%s\n' '  make up [SERVICE=name]'
 	@printf '%s\n' '  make up SERVICE=db_migrations'
+	@printf '%s\n' '  make up SERVICE=app_gateway'
 	@printf '%s\n' '  make down'
 	@printf '%s\n' '  make logs [SERVICE=name]'
 	@printf '%s\n' '  make db-migrate'
@@ -40,10 +42,10 @@ help:
 up:
 	@if [ -n "$(SERVICE)" ]; then \
 		case "$(SERVICE)" in \
-			backend|frontend_admin) \
+			backend|frontend_admin|app_gateway) \
 				$(DC) up -d postgres; \
 				$(DC) run --rm --no-deps --build $(DB_MIGRATION_SERVICE); \
-				$(DC) up -d $(SERVICE) --build; \
+				$(DC) up -d $(WEB_STACK_SERVICES) --build; \
 				;; \
 			$(DB_MIGRATION_SERVICE)) \
 				$(DC) up -d postgres; \
@@ -56,7 +58,7 @@ up:
 	else \
 		$(DC) up -d postgres; \
 		$(DC) run --rm --no-deps --build $(DB_MIGRATION_SERVICE); \
-		$(DC) up -d --build backend frontend_admin; \
+		$(DC) up -d --build $(WEB_STACK_SERVICES); \
 	fi
 
 build:

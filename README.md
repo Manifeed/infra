@@ -29,14 +29,19 @@ make up
 ```
 
 `make up` lance PostgreSQL, applique les migrations Alembic via le service `db_migrations`,
-puis demarre le backend et le frontend.
+puis demarre le backend, le frontend et la gateway Nginx locale.
 
 Services exposes par defaut :
 
-- backend : `http://localhost:8000`
-- openapi : `http://localhost:8000/docs`
-- frontend admin : `http://localhost:3000`
+- app gateway : `http://localhost:3000`
+- openapi backend via gateway : `http://localhost:3000/docs`
 - postgres : `localhost:5432`
+
+Le navigateur appelle desormais directement le backend sur le meme host via la gateway :
+
+- `GET/POST /api/*` vers le backend FastAPI
+- `GET/POST /workers/*` vers le backend FastAPI
+- toutes les autres pages vers Next.js
 
 ## Commandes utiles
 

@@ -84,6 +84,7 @@ services:
       RSS_WORKER_VERSION: ${RSS_WORKER_VERSION:-0.1.0}
       SOURCE_EMBEDDING_WORKER_VERSION: ${SOURCE_EMBEDDING_WORKER_VERSION:-e5-large-v1}
       WORKER_RELEASE_MANIFEST_PATH: /app/config/worker_release_manifest.dev.json
+      FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-*}
     depends_on:
       postgres:
         condition: service_healthy
@@ -91,8 +92,6 @@ services:
         condition: service_healthy
       qdrant:
         condition: service_started
-    ports:
-      - "${BACKEND_PORT:-8000}:8000"
     healthcheck:
       test:
         [
@@ -107,7 +106,6 @@ services:
       - ${RSS_FEEDS_HOST_PATH:-../../rss_feeds}:/rss_feeds:z
     networks:
       - manifeed_internal
-      - manifeed_public
     dns:
       - 8.8.8.8
     restart: unless-stopped
@@ -122,14 +120,28 @@ services:
     user: "${UID:-1000}:${GID:-1000}"
     environment:
       BACKEND_INTERNAL_URL: ${BACKEND_INTERNAL_URL_ADMIN:-http://backend:8000}
+      NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-}
     depends_on:
       - backend
-    ports:
-      - "${ADMIN_PORT:-3000}:3000"
     volumes:
       - ${FRONTEND_REPO_PATH:-../frontend}:/app:z
       - frontend_admin_node_modules:/app/node_modules
     networks:
+      - manifeed_internal
+    restart: unless-stopped
+
+  app_gateway:
+    image: nginx:1.27-alpine
+    container_name: manifeed_app_gateway
+    depends_on:
+      - backend
+      - frontend_admin
+    ports:
+      - "${APP_PORT:-3000}:80"
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/nginx.conf:ro
+    networks:
+      - manifeed_internal
       - manifeed_public
     restart: unless-stopped
 
