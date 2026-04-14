@@ -17,7 +17,7 @@ DB_MIGRATION_SERVICE ?= db_migrations
 QDRANT_BACKUP_DIR ?= ./backups/qdrant
 QDRANT_SNAPSHOT_FILE ?=
 
-.PHONY: help up build down restart logs clean clean-all db-migrate db-reset db-backup db-recreate-from-sql db-restore qdrant-backup qdrant-restore test-backend test-worker test-worker-rss test-worker-embedding build-worker-rss-native run-worker-rss-native build-worker-embedding-linux-x86 run-worker-embedding-linux-x86 release-workers release-workers-desktop release-workers-rss release-workers-embedding export-openapi check-cargo
+.PHONY: help up build down restart logs clean clean-all db-migrate db-reset db-backup db-recreate-from-sql db-restore qdrant-backup qdrant-restore test-backend test-worker test-worker-rss test-worker-embedding build-worker-rss-native run-worker-rss-native build-worker-embedding-linux-x86 run-worker-embedding-linux-x86 release-workers release-workers-desktop release-workers-rss release-workers-embedding release-workers-dry-run check-worker-quality export-openapi check-cargo
 
 help:
 	@printf '%s\n' 'Available targets:'
@@ -35,7 +35,9 @@ help:
 	@printf '%s\n' '  make test-backend'
 	@printf '%s\n' '  make test-worker'
 	@printf '%s\n' '  make test-worker-embedding'
+	@printf '%s\n' '  make check-worker-quality'
 	@printf '%s\n' '  make release-workers [RELEASE_WORKER_FAMILIES="desktop rss embedding"]'
+	@printf '%s\n' '  make release-workers-dry-run [RELEASE_WORKER_FAMILIES="desktop rss embedding"]'
 	@printf '%s\n' '  make release-workers-desktop'
 	@printf '%s\n' '  make release-workers-rss'
 	@printf '%s\n' '  make release-workers-embedding'
@@ -49,6 +51,12 @@ up:
 				$(DC) run --rm --no-deps --build $(DB_MIGRATION_SERVICE); \
 				$(DC) up -d $(SERVICE) --build; \
 				;; \
+			edge_nginx) \
+				$(DC) up -d postgres; \
+				$(DC) run --rm --no-deps --build $(DB_MIGRATION_SERVICE); \
+				$(DC) up -d backend frontend_admin --build; \
+				$(DC) up -d --force-recreate edge_nginx; \
+				;; \
 			$(DB_MIGRATION_SERVICE)) \
 				$(DC) up -d postgres; \
 				$(DC) run --rm --no-deps --build $(DB_MIGRATION_SERVICE); \
@@ -61,6 +69,7 @@ up:
 		$(DC) up -d postgres; \
 		$(DC) run --rm --no-deps --build $(DB_MIGRATION_SERVICE); \
 		$(DC) up -d --build backend frontend_admin; \
+		$(DC) up -d --force-recreate edge_nginx; \
 	fi
 
 build:
@@ -229,6 +238,10 @@ test-worker: test-worker-rss
 test-worker-embedding: check-cargo
 	cd $(WORKERS_REPO_PATH) && $(CARGO) test -p worker-source-embedding $(EMBEDDING_WORKER_CARGO_TEST_ARGS)
 
+check-worker-quality: check-cargo
+	cd $(WORKERS_REPO_PATH) && python3 ./scripts/check_file_lengths.py .
+	cd $(WORKERS_REPO_PATH) && $(CARGO) clippy --workspace --all-targets
+
 build-worker-rss-native: check-cargo
 	cd $(WORKERS_REPO_PATH) && $(CARGO) build --release -p worker-rss
 
@@ -243,6 +256,9 @@ run-worker-embedding-linux-x86: build-worker-embedding-linux-x86
 
 release-workers: check-cargo
 	cd $(WORKERS_REPO_PATH) && bash ./installers/release-workers.sh $(foreach family,$(RELEASE_WORKER_FAMILIES),--family $(family))
+
+release-workers-dry-run: check-cargo
+	cd $(WORKERS_REPO_PATH) && bash ./installers/release-workers.sh --dry-run $(foreach family,$(RELEASE_WORKER_FAMILIES),--family $(family))
 
 release-workers-desktop: check-cargo
 	cd $(WORKERS_REPO_PATH) && bash ./installers/release-workers.sh --family desktop

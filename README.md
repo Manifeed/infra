@@ -13,6 +13,7 @@ Manifeed_multiRepo/
 ├── infra/
 │   ├── postgres_migration/
 │   ├── backups/
+│   ├── nginx/
 │   ├── docker-compose.yml
 │   └── Makefile
 └── workers/
@@ -29,13 +30,11 @@ make up
 ```
 
 `make up` lance PostgreSQL, applique les migrations Alembic via le service `db_migrations`,
-puis demarre le backend et le frontend.
+puis demarre le backend, le frontend et l'edge Nginx.
 
 Services exposes par defaut :
 
-- backend : `http://localhost:8000`
-- openapi : `http://localhost:8000/docs`
-- frontend admin : `http://localhost:3000`
+- edge Nginx : `http://localhost:8080`
 - postgres : `localhost:5432`
 
 ## Commandes utiles
@@ -62,6 +61,15 @@ make export-openapi
 - `RSS_FEEDS_HOST_PATH`
 
 Les valeurs par defaut pointent vers les repos freres sous `../`.
+
+## Edge Nginx
+
+La configuration Nginx locale est centralisee dans `infra/nginx/` :
+
+- `nginx/nginx.conf` : point d'entree principal du conteneur
+- `nginx/conf.d/edge.conf` : routage edge, headers de securite, rate limiting et proxy
+- `nginx/snippets/` : directives partagees
+- `nginx/errors/` : page d'erreur HTML et assets associes
 
 ## Base de donnees et migrations
 
