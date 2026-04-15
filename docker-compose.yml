@@ -80,6 +80,8 @@ services:
       - ./nginx/conf.d:/etc/nginx/conf.d:ro
       - ./nginx/snippets:/etc/nginx/snippets:ro
       - ./nginx/errors:/usr/share/nginx/html/errors:ro
+      - ./nginx/fonts:/usr/share/nginx/html/fonts:ro
+      - ./nginx/favicon.ico:/usr/share/nginx/html/favicon.ico:ro
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost/login || exit 1"]
       interval: 10s
