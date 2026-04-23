@@ -1,6 +1,6 @@
 """baseline schema for current runtime
 
-Revision ID: 1_0_baseline
+Revision ID: 1_0
 Revises:
 Create Date: 2026-03-24 00:00:00.000000
 
@@ -13,7 +13,7 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 
-revision = "1_0_baseline"
+revision = "1_0"
 down_revision = None
 branch_labels = None
 depends_on = None
@@ -31,6 +31,7 @@ _RSS_FEED_RUNTIME_STATUS_ENUM = postgresql.ENUM(
 def upgrade() -> None:
     bind = op.get_bind()
     _RSS_FEED_RUNTIME_STATUS_ENUM.create(bind, checkfirst=True)
+    op.execute(sa.text("CREATE SEQUENCE IF NOT EXISTS worker_task_execution_id_seq AS BIGINT"))
     _create_rss_catalog_tables()
     _create_auth_tables()
     _create_worker_gateway_tables()
@@ -41,6 +42,7 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     for index_name, table_name in (
+        ("idx_worker_tasks_status_execution_id", "worker_tasks"),
         ("idx_worker_tasks_claim_expires_at", "worker_tasks"),
         ("idx_worker_tasks_job_id_status", "worker_tasks"),
         ("idx_worker_tasks_task_type_status_requested_at", "worker_tasks"),
@@ -51,6 +53,7 @@ def downgrade() -> None:
         ("idx_article_feed_links_feed_id_article_id", "article_feed_links"),
         ("idx_articles_company_id_published_at", "articles"),
         ("idx_articles_published_at_brin", "articles"),
+        ("uq_articles_content_key", "articles"),
         ("idx_worker_leases_task_type_expires_at", "worker_leases"),
         ("idx_worker_leases_session_expires_at", "worker_leases"),
         ("idx_worker_sessions_api_key_expires_at", "worker_sessions"),
@@ -90,6 +93,7 @@ def downgrade() -> None:
     ):
         op.drop_table(table_name)
 
+    op.execute(sa.text("DROP SEQUENCE IF EXISTS worker_task_execution_id_seq"))
     _RSS_FEED_RUNTIME_STATUS_ENUM.drop(op.get_bind(), checkfirst=True)
 
 
@@ -212,10 +216,12 @@ def _create_auth_tables() -> None:
         sa.Column("pseudo", sa.String(length=80), nullable=False),
         sa.Column("password_hash", sa.String(length=255), nullable=False),
         sa.Column("role", sa.String(length=20), nullable=False, server_default=sa.text("'user'")),
+        sa.Column("pp_id", sa.Integer(), nullable=False, server_default=sa.text("1")),
         sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.text("true")),
         sa.Column("api_access_enabled", sa.Boolean(), nullable=False, server_default=sa.text("false")),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")),
+        sa.CheckConstraint("pp_id >= 1 AND pp_id <= 8", name="ck_users_pp_id"),
         sa.CheckConstraint("role IN ('user', 'admin')", name="ck_users_role"),
         sa.UniqueConstraint("email", name="uq_users_email"),
         sa.UniqueConstraint("pseudo", name="uq_users_pseudo"),
@@ -286,8 +292,14 @@ def _create_worker_gateway_tables() -> None:
         sa.Column("task_type", sa.String(length=64), nullable=False),
         sa.Column("payload_ref", sa.String(length=255), nullable=False),
         sa.Column("expires_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("result_status", sa.String(length=16), nullable=True),
         sa.Column("result_nonce", sa.String(length=64), nullable=True),
         sa.Column("signature_hash", sa.String(length=64), nullable=False),
+        sa.Column("result_signature_hash", sa.String(length=64), nullable=True),
+        sa.CheckConstraint(
+            "result_status IS NULL OR result_status IN ('completed', 'failed')",
+            name="ck_worker_leases_result_status",
+        ),
         sa.ForeignKeyConstraint(["session_id"], ["worker_sessions.session_id"], ondelete="CASCADE"),
     )
     op.create_index(
@@ -309,6 +321,7 @@ def _create_article_storage_tables() -> None:
         "articles",
         sa.Column("article_id", sa.BigInteger(), primary_key=True, autoincrement=True),
         sa.Column("article_key", sa.CHAR(length=64), nullable=False),
+        sa.Column("content_key", sa.CHAR(length=64), nullable=True),
         sa.Column("published_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("ingested_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")),
         sa.Column("canonical_url", sa.String(length=1000), nullable=True),
@@ -332,6 +345,13 @@ def _create_article_storage_tables() -> None:
         "articles",
         ["company_id", "published_at"],
         unique=False,
+    )
+    op.create_index(
+        "uq_articles_content_key",
+        "articles",
+        ["content_key"],
+        unique=True,
+        postgresql_where=sa.text("content_key IS NOT NULL"),
     )
 
     op.create_table(
@@ -439,6 +459,7 @@ def _create_worker_queue_tables() -> None:
         sa.Column("task_type", sa.String(length=64), nullable=False),
         sa.Column("worker_version", sa.String(length=80), nullable=True),
         sa.Column("payload", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
+        sa.Column("execution_id", sa.BigInteger(), nullable=False, server_default=sa.text("0")),
         sa.Column("requested_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")),
         sa.Column("claimed_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("claim_expires_at", sa.DateTime(timezone=True), nullable=True),
@@ -458,6 +479,12 @@ def _create_worker_queue_tables() -> None:
         "idx_worker_tasks_task_type_status_requested_at",
         "worker_tasks",
         ["task_type", "status", "requested_at"],
+        unique=False,
+    )
+    op.create_index(
+        "idx_worker_tasks_status_execution_id",
+        "worker_tasks",
+        ["status", "execution_id"],
         unique=False,
     )
     op.create_index("idx_worker_tasks_job_id_status", "worker_tasks", ["job_id", "status"], unique=False)

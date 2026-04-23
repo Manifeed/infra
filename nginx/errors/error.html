@@ -15,6 +15,8 @@
 				--dark-gray: #2c2f3a;
 				--blue: #003fe0;
 				--orange: #df7700;
+				--primary-7: #003fe012;
+				--secondary-7: #df770012;
 				--shadow: 0 24px 60px #0000001a;
 			}
 			@font-face {
@@ -48,7 +50,10 @@
 				display: grid;
 				place-items: center;
 				padding: clamp(1.5rem, 4vw, 3rem);
-				background: var(--very-light-gray);
+				background: 
+					radial-gradient(circle at bottom left, var(--primary-7), transparent 28%),
+					radial-gradient(circle at top right, var(--secondary-7), transparent 26%),
+					var(--very-light-gray);
 				color: var(--dark-gray);
 				font-family: 'Space Grotesk', "Trebuchet MS", "Segoe UI", sans-serif;
 			}
@@ -124,40 +129,9 @@
 				border-color: var(--gray);
 				transform: scale(1.10);
 			}
-
-			.background {
-				height: 100%;
-				width: 100%;
-				position: fixed;
-				top: 0;
-				left: 0;
-			}
-			.bubble {
-				opacity: 15%;
-				width: 120%;
-				height: 120%;
-				border-radius: 50%;
-				filter: blur(5000px);
-				position: absolute;
-				transform: translateX(-50%) translateY(-50%);
-			}
-			.blue {
-				background-color: var(--blue);
-				top: 100%;
-				left: 0;
-			}
-			.orange {
-				background-color: var(--orange);
-				top: 0;
-				left: 100%;
-			}
 	</style>
 </head>
 <body>
-	<div class="background">
-		<div class="bubble blue"></div>
-		<div class="bubble orange"></div>
-	</div>
 	<main class="panel glassmorph" aria-labelledby="error-title">
 			<h1 id="error-title" class="title"><!--# echo var="edge_error_heading" default="Manifeed Error" --></h1>
 			<p class="message"><!--# echo var="edge_error_message" default="The edge could not complete your request." --></p>
