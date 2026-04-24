@@ -13,5 +13,6 @@ RUN pip install --no-cache-dir --timeout 120 --retries 10 -r requirements.txt
 
 COPY alembic.ini ./
 COPY alembic ./alembic
+COPY migrate_all.py ./
 
-CMD ["alembic", "-c", "alembic.ini", "upgrade", "head"]
+CMD ["python", "migrate_all.py"]

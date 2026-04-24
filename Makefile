@@ -17,7 +17,7 @@ DB_MIGRATION_SERVICE ?= db_migrations
 QDRANT_BACKUP_DIR ?= ./backups/qdrant
 QDRANT_SNAPSHOT_FILE ?=
 
-.PHONY: help up build down restart logs clean clean-all db-migrate db-reset db-backup db-recreate-from-sql db-restore qdrant-backup qdrant-restore test-backend test-worker test-worker-rss test-worker-embedding build-worker-rss-native run-worker-rss-native build-worker-embedding-linux-x86 run-worker-embedding-linux-x86 release-workers release-workers-desktop release-workers-rss release-workers-embedding release-workers-dry-run check-worker-quality export-openapi check-cargo
+.PHONY: help up build down restart logs clean clean-all db-migrate db-reset db-backup db-recreate-from-sql db-restore qdrant-backup qdrant-reset qdrant-restore test-backend test-worker test-worker-rss test-worker-embedding build-worker-rss-native run-worker-rss-native build-worker-embedding-linux-x86 run-worker-embedding-linux-x86 release-workers release-workers-desktop release-workers-rss release-workers-embedding release-workers-dry-run check-worker-quality export-openapi check-cargo
 
 help:
 	@printf '%s\n' 'Available targets:'
@@ -31,6 +31,7 @@ help:
 	@printf '%s\n' '  make db-recreate-from-sql SQL_FILE=./backups/file.sql'
 	@printf '%s\n' '  make db-restore SQL_FILE=./backups/file.sql'
 	@printf '%s\n' '  make qdrant-backup [QDRANT_BACKUP_DIR=./backups/qdrant]'
+	@printf '%s\n' '  make qdrant-reset'
 	@printf '%s\n' '  make qdrant-restore QDRANT_SNAPSHOT_FILE=./backups/qdrant/your.snapshot'
 	@printf '%s\n' '  make test-backend'
 	@printf '%s\n' '  make test-worker'
@@ -121,9 +122,10 @@ db-migrate:
 
 db-reset:
 	$(DC) up -d postgres
-	$(DC) stop backend
-	$(DC) exec -T postgres sh -lc 'psql -v ON_ERROR_STOP=1 -U "$${POSTGRES_USER:-manifeed}" -d "$${POSTGRES_DB:-manifeed}" -c "DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;"'
+	$(DC) stop backend || true
+	$(DC) exec -T postgres sh -lc 'set -e; for db in "$${CONTENT_POSTGRES_DB:-manifeed_content}" "$${IDENTITY_POSTGRES_DB:-manifeed_identity}" "$${WORKERS_POSTGRES_DB:-manifeed_workers}"; do psql -v ON_ERROR_STOP=1 -U "$${POSTGRES_USER:-manifeed}" -d postgres -c "DROP DATABASE IF EXISTS \"$$db\" WITH (FORCE);"; psql -v ON_ERROR_STOP=1 -U "$${POSTGRES_USER:-manifeed}" -d postgres -c "CREATE DATABASE \"$$db\";"; done'
 	$(DC) run --rm --no-deps --build $(DB_MIGRATION_SERVICE)
+	$(MAKE) qdrant-reset
 	$(DC) up -d --build backend
 
 db-backup:
@@ -188,6 +190,25 @@ qdrant-backup:
 		curl -sS -f -o "$$out_file" "$$base_url/collections/$$coll/snapshots/$$snap_name"; \
 	fi; \
 	printf 'Qdrant snapshot written to %s\n' "$$out_file"
+
+qdrant-reset:
+	@set -e; \
+	if [ -f .env ]; then set -a; . ./.env; set +a; fi; \
+	port="$${QDRANT_PORT:-6333}"; \
+	coll="$${QDRANT_COLLECTION_NAME:-article_embeddings}"; \
+	$(DC) up -d qdrant; \
+	sleep 2; \
+	base_url="http://127.0.0.1:$$port"; \
+	if [ -n "$$QDRANT_API_KEY" ]; then \
+		http=$$(curl -sS -o /dev/null -w '%{http_code}' -X DELETE "$$base_url/collections/$$coll" -H "api-key: $$QDRANT_API_KEY"); \
+	else \
+		http=$$(curl -sS -o /dev/null -w '%{http_code}' -X DELETE "$$base_url/collections/$$coll"); \
+	fi; \
+	if [ "$$http" != "200" ] && [ "$$http" != "202" ] && [ "$$http" != "404" ]; then \
+		printf 'qdrant-reset failed: DELETE %s/collections/%s returned HTTP %s\n' "$$base_url" "$$coll" "$$http"; \
+		exit 1; \
+	fi; \
+	printf 'Qdrant collection %s reset\n' "$$coll"
 
 qdrant-restore:
 	@if [ -z "$(QDRANT_SNAPSHOT_FILE)" ]; then \

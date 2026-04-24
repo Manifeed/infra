@@ -3,7 +3,7 @@ services:
     image: postgres:15
     container_name: manifeed_postgres
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-manifeed}
+      POSTGRES_DB: ${POSTGRES_DB:-manifeed_content}
       POSTGRES_USER: ${POSTGRES_USER:-manifeed}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-manifeed}
     ports:
@@ -11,7 +11,7 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-manifeed} -d ${POSTGRES_DB:-manifeed}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-manifeed} -d ${POSTGRES_DB:-manifeed_content}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -49,7 +49,9 @@ services:
       provenance: false
       sbom: false
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-manifeed}:${POSTGRES_PASSWORD:-manifeed}@postgres:5432/${POSTGRES_DB:-manifeed}
+      CONTENT_DATABASE_URL: postgresql://${POSTGRES_USER:-manifeed}:${POSTGRES_PASSWORD:-manifeed}@postgres:5432/${CONTENT_POSTGRES_DB:-manifeed_content}
+      IDENTITY_DATABASE_URL: postgresql://${POSTGRES_USER:-manifeed}:${POSTGRES_PASSWORD:-manifeed}@postgres:5432/${IDENTITY_POSTGRES_DB:-manifeed_identity}
+      WORKERS_DATABASE_URL: postgresql://${POSTGRES_USER:-manifeed}:${POSTGRES_PASSWORD:-manifeed}@postgres:5432/${WORKERS_POSTGRES_DB:-manifeed_workers}
     depends_on:
       postgres:
         condition: service_healthy
@@ -57,10 +59,11 @@ services:
         condition: service_healthy
       qdrant:
         condition: service_started
-    command: ["alembic", "-c", "alembic.ini", "upgrade", "head"]
+    command: ["python", "migrate_all.py"]
     volumes:
       - ./postgres_migration/alembic:/app/alembic:z
       - ./postgres_migration/alembic.ini:/app/alembic.ini:z
+      - ./postgres_migration/migrate_all.py:/app/migrate_all.py:z
     networks:
       - manifeed_internal
     restart: "no"
@@ -101,14 +104,17 @@ services:
       sbom: false
     container_name: manifeed_backend
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-manifeed}:${POSTGRES_PASSWORD:-manifeed}@postgres:5432/${POSTGRES_DB:-manifeed}
-      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8080}
+      CONTENT_DATABASE_URL: postgresql://${POSTGRES_USER:-manifeed}:${POSTGRES_PASSWORD:-manifeed}@postgres:5432/${CONTENT_POSTGRES_DB:-manifeed_content}
+      IDENTITY_DATABASE_URL: postgresql://${POSTGRES_USER:-manifeed}:${POSTGRES_PASSWORD:-manifeed}@postgres:5432/${IDENTITY_POSTGRES_DB:-manifeed_identity}
+      WORKERS_DATABASE_URL: postgresql://${POSTGRES_USER:-manifeed}:${POSTGRES_PASSWORD:-manifeed}@postgres:5432/${WORKERS_POSTGRES_DB:-manifeed_workers}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost,http://localhost:3000,http://localhost:8080}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       QDRANT_URL: ${QDRANT_URL:-http://qdrant:6333}
       QDRANT_COLLECTION_NAME: ${QDRANT_COLLECTION_NAME:-article_embeddings}
       SOURCE_EMBEDDING_DIMENSIONS: ${SOURCE_EMBEDDING_DIMENSIONS:-1024}
       RSS_FEEDS_REPOSITORY_PATH: ${RSS_FEEDS_REPOSITORY_PATH:-/rss_feeds}
       WORKER_RELEASE_CATALOG_PATH: /app/var/worker-releases/catalog.json
+      AUTH_SESSION_COOKIE_SECURE: ${AUTH_SESSION_COOKIE_SECURE:-false}
     depends_on:
       postgres:
         condition: service_healthy
