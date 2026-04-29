@@ -3,10 +3,10 @@ DC := $(COMPOSE) -f docker-compose.yml
 CARGO ?= $(shell if command -v cargo >/dev/null 2>&1; then command -v cargo; elif [ -x "$(HOME)/.cargo/bin/cargo" ]; then printf '%s' "$(HOME)/.cargo/bin/cargo"; else printf '%s' cargo; fi)
 .DEFAULT_GOAL := help
 SERVICE ?=
-BACKEND_REPO_PATH ?= ../backend
+ADMIN_SERVICE_REPO_PATH ?= ../admin_service
+CONTENT_SERVICE_REPO_PATH ?= ../content_service
 WORKERS_REPO_PATH ?= ../workers
-API_REPO_PATH ?= ../api
-BACKEND_PYTEST_ARGS ?= tests -vv --color=yes --tb=short -ra
+SERVICE_PYTEST_ARGS ?= tests -vv --color=yes --tb=short -ra
 WORKER_CARGO_TEST_ARGS ?=
 EMBEDDING_WORKER_CARGO_TEST_ARGS ?=
 RUST_LINUX_X86_TARGET := x86_64-unknown-linux-gnu
@@ -17,7 +17,7 @@ DB_MIGRATION_SERVICE ?= db_migrations
 QDRANT_BACKUP_DIR ?= ./backups/qdrant
 QDRANT_SNAPSHOT_FILE ?=
 
-.PHONY: help up build down restart logs clean clean-all db-migrate db-reset db-backup db-recreate-from-sql db-restore qdrant-backup qdrant-reset qdrant-restore test-backend test-worker test-worker-rss test-worker-embedding build-worker-rss-native run-worker-rss-native build-worker-embedding-linux-x86 run-worker-embedding-linux-x86 release-workers release-workers-desktop release-workers-rss release-workers-embedding release-workers-dry-run check-worker-quality export-openapi check-cargo
+.PHONY: help up build down restart logs clean clean-all db-migrate db-reset db-backup db-recreate-from-sql db-restore qdrant-backup qdrant-reset qdrant-restore test-services test-admin-service test-content-service test-auth-service test-worker test-worker-rss test-worker-embedding build-worker-rss-native run-worker-rss-native build-worker-embedding-linux-x86 run-worker-embedding-linux-x86 release-workers release-workers-desktop release-workers-rss release-workers-embedding release-workers-dry-run check-worker-quality check-cargo
 
 help:
 	@printf '%s\n' 'Available targets:'
@@ -33,7 +33,7 @@ help:
 	@printf '%s\n' '  make qdrant-backup [QDRANT_BACKUP_DIR=./backups/qdrant]'
 	@printf '%s\n' '  make qdrant-reset'
 	@printf '%s\n' '  make qdrant-restore QDRANT_SNAPSHOT_FILE=./backups/qdrant/your.snapshot'
-	@printf '%s\n' '  make test-backend'
+	@printf '%s\n' '  make test-services'
 	@printf '%s\n' '  make test-worker'
 	@printf '%s\n' '  make test-worker-embedding'
 	@printf '%s\n' '  make check-worker-quality'
@@ -42,12 +42,11 @@ help:
 	@printf '%s\n' '  make release-workers-desktop'
 	@printf '%s\n' '  make release-workers-rss'
 	@printf '%s\n' '  make release-workers-embedding'
-	@printf '%s\n' '  make export-openapi'
 
 up:
 	@if [ -n "$(SERVICE)" ]; then \
 		case "$(SERVICE)" in \
-			backend|frontend_admin) \
+			admin_service|content_service|frontend_admin) \
 				$(DC) up -d postgres; \
 				$(DC) run --rm --no-deps --build $(DB_MIGRATION_SERVICE); \
 				$(DC) up -d $(SERVICE) --build; \
@@ -55,7 +54,7 @@ up:
 			edge_nginx) \
 				$(DC) up -d postgres; \
 				$(DC) run --rm --no-deps --build $(DB_MIGRATION_SERVICE); \
-				$(DC) up -d backend frontend_admin --build; \
+				$(DC) up -d admin_service content_service frontend_admin --build; \
 				$(DC) up -d --force-recreate edge_nginx; \
 				;; \
 			$(DB_MIGRATION_SERVICE)) \
@@ -69,7 +68,7 @@ up:
 	else \
 		$(DC) up -d postgres; \
 		$(DC) run --rm --no-deps --build $(DB_MIGRATION_SERVICE); \
-		$(DC) up -d --build backend frontend_admin; \
+		$(DC) up -d --build admin_service content_service frontend_admin; \
 		$(DC) up -d --force-recreate edge_nginx; \
 	fi
 
@@ -122,11 +121,11 @@ db-migrate:
 
 db-reset:
 	$(DC) up -d postgres
-	$(DC) stop backend || true
+	$(DC) stop admin_service content_service || true
 	$(DC) exec -T postgres sh -lc 'set -e; for db in "$${CONTENT_POSTGRES_DB:-manifeed_content}" "$${IDENTITY_POSTGRES_DB:-manifeed_identity}" "$${WORKERS_POSTGRES_DB:-manifeed_workers}"; do psql -v ON_ERROR_STOP=1 -U "$${POSTGRES_USER:-manifeed}" -d postgres -c "DROP DATABASE IF EXISTS \"$$db\" WITH (FORCE);"; psql -v ON_ERROR_STOP=1 -U "$${POSTGRES_USER:-manifeed}" -d postgres -c "CREATE DATABASE \"$$db\";"; done'
 	$(DC) run --rm --no-deps --build $(DB_MIGRATION_SERVICE)
 	$(MAKE) qdrant-reset
-	$(DC) up -d --build backend
+	$(DC) up -d --build admin_service content_service
 
 db-backup:
 	@backup_file="$(DB_BACKUP_FILE)"; \
@@ -145,10 +144,10 @@ db-recreate-from-sql:
 		exit 1; \
 	fi
 	$(DC) up -d postgres
-	$(DC) stop backend
+	$(DC) stop admin_service content_service
 	$(DC) exec -T postgres sh -lc 'psql -v ON_ERROR_STOP=1 -U "$${POSTGRES_USER:-manifeed}" -d "$${POSTGRES_DB:-manifeed}" -c "DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;"'
 	$(DC) exec -T postgres sh -lc 'psql -v ON_ERROR_STOP=1 -U "$${POSTGRES_USER:-manifeed}" -d "$${POSTGRES_DB:-manifeed}"' < "$(SQL_FILE)"
-	$(DC) up -d backend
+	$(DC) up -d admin_service content_service
 	@printf 'Database restored from %s\n' "$(SQL_FILE)"
 
 db-restore: db-recreate-from-sql
@@ -225,7 +224,7 @@ qdrant-restore:
 	coll="$${QDRANT_COLLECTION_NAME:-article_embeddings}"; \
 	base_url="http://127.0.0.1:$$port"; \
 	snapfile="$(QDRANT_SNAPSHOT_FILE)"; \
-	$(DC) stop backend || true; \
+	$(DC) stop admin_service content_service || true; \
 	$(DC) up -d qdrant; \
 	sleep 2; \
 	if [ -n "$$QDRANT_API_KEY" ]; then \
@@ -238,11 +237,19 @@ qdrant-restore:
 			-X POST "$$base_url/collections/$$coll/snapshots/upload?wait=true&priority=snapshot" \
 			-F "snapshot=@$$snapfile"; \
 	fi; \
-	$(DC) up -d backend; \
+	$(DC) up -d admin_service content_service; \
 	printf 'Qdrant collection %s restored from %s\n' "$$coll" "$$snapfile"
 
-test-backend:
-	$(DC) run --rm --no-deps --build backend sh -lc "PIP_ROOT_USER_ACTION=ignore python -m pip install --disable-pip-version-check --quiet pytest && python -m pytest $(BACKEND_PYTEST_ARGS)"
+test-admin-service:
+	$(DC) run --rm --no-deps --build admin_service sh -lc "PIP_ROOT_USER_ACTION=ignore python -m pip install --disable-pip-version-check --quiet pytest && python -m pytest $(SERVICE_PYTEST_ARGS)"
+
+test-content-service:
+	$(DC) run --rm --no-deps --build content_service sh -lc "PIP_ROOT_USER_ACTION=ignore python -m pip install --disable-pip-version-check --quiet pytest && python -m pytest $(SERVICE_PYTEST_ARGS)"
+
+test-auth-service:
+	$(DC) run --rm --no-deps --build auth_service sh -lc "python -m pytest $(SERVICE_PYTEST_ARGS)"
+
+test-services: test-admin-service test-content-service test-auth-service
 
 check-cargo:
 	@if [ ! -x "$(CARGO)" ] && ! command -v "$(CARGO)" >/dev/null 2>&1; then \
@@ -289,6 +296,3 @@ release-workers-rss: check-cargo
 
 release-workers-embedding: check-cargo
 	cd $(WORKERS_REPO_PATH) && bash ./installers/release-workers.sh --family embedding
-
-export-openapi:
-	MANIFEED_BACKEND_PATH=$(BACKEND_REPO_PATH) $(API_REPO_PATH)/scripts/export_openapi.sh

@@ -6,8 +6,8 @@ Repo d'orchestration locale du split multi-repo Manifeed.
 
 ```text
 Manifeed_multiRepo/
-├── api/
-├── backend/
+├── admin_service/
+├── content_service/
 ├── docs/
 ├── frontend/
 ├── infra/
@@ -16,6 +16,7 @@ Manifeed_multiRepo/
 │   ├── nginx/
 │   ├── docker-compose.yml
 │   └── Makefile
+├── worker_service/
 └── workers/
 ```
 
@@ -30,7 +31,7 @@ make up
 ```
 
 `make up` lance PostgreSQL, applique les migrations Alembic via le service `db_migrations`,
-puis demarre le backend, le frontend et l'edge Nginx.
+puis demarre `admin_service`, `content_service`, `public_api`, `worker_service`, le frontend et l'edge Nginx.
 
 Services exposes par defaut :
 
@@ -41,23 +42,24 @@ Services exposes par defaut :
 
 ```bash
 make logs
-make up SERVICE=backend
+make up SERVICE=admin_service
+make up SERVICE=content_service
 make up SERVICE=db_migrations
 make db-migrate
 make db-backup
 make db-recreate-from-sql SQL_FILE=./backups/manifeed_dump.sql
-make test-backend
+make test-services
 make test-worker
 make test-worker-embedding
-make export-openapi
 ```
 
 ## Variables de chemins
 
-- `BACKEND_REPO_PATH`
+- `ADMIN_SERVICE_REPO_PATH`
+- `CONTENT_SERVICE_REPO_PATH`
 - `FRONTEND_REPO_PATH`
+- `WORKER_SERVICE_REPO_PATH`
 - `WORKERS_REPO_PATH`
-- `API_REPO_PATH`
 - `RSS_FEEDS_HOST_PATH`
 
 Les valeurs par defaut pointent vers les repos freres sous `../`.
