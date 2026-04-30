@@ -33,6 +33,14 @@ make up
 `make up` lance PostgreSQL, applique les migrations Alembic via le service `db_migrations`,
 puis demarre `admin_service`, `content_service`, `public_api`, `worker_service`, le frontend et l'edge Nginx.
 
+Tous les services backend buildent maintenant depuis la racine du monorepo et
+embarquent `shared_backend` via une wheel locale construite pendant le build
+Docker.
+
+Le trafic edge ne doit etre pris qu'une fois `public_api` declare `healthy`, ce
+qui repose maintenant sur `GET /internal/ready` et son code HTTP `200` quand
+la gateway est reellement prete.
+
 Services exposes par defaut :
 
 - edge Nginx : `http://localhost:8080`
@@ -55,6 +63,7 @@ make test-worker-embedding
 
 ## Variables de chemins
 
+- `MANIFEED_MULTI_REPO_PATH`
 - `ADMIN_SERVICE_REPO_PATH`
 - `CONTENT_SERVICE_REPO_PATH`
 - `FRONTEND_REPO_PATH`
@@ -62,7 +71,9 @@ make test-worker-embedding
 - `WORKERS_REPO_PATH`
 - `RSS_FEEDS_HOST_PATH`
 
-Les valeurs par defaut pointent vers les repos freres sous `../`.
+`MANIFEED_MULTI_REPO_PATH` pointe vers la racine du monorepo pour les builds
+backend. Les autres variables restent utiles pour les montages de code source
+en local.
 
 ## Edge Nginx
 
@@ -72,6 +83,15 @@ La configuration Nginx locale est centralisee dans `infra/nginx/` :
 - `nginx/conf.d/edge.conf` : routage edge, headers de securite, rate limiting et proxy
 - `nginx/snippets/` : directives partagees
 - `nginx/errors/` : page d'erreur HTML et assets associes
+
+Contrat edge actuel :
+
+- `/api/*` -> `public_api`
+- `/workers/api/*` -> `worker_service`
+- `/` et `/_next/*` -> `frontend_admin`
+
+Les releases workers sont donc telechargees via l'edge, mais servent toujours
+des artefacts fournis par `worker_service`.
 
 ## Base de donnees et migrations
 

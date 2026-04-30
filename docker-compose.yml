@@ -73,7 +73,7 @@ services:
     container_name: manifeed_edge_nginx
     depends_on:
       public_api:
-        condition: service_started
+        condition: service_healthy
       worker_service:
         condition: service_started
       frontend_admin:
@@ -139,7 +139,7 @@ services:
       test:
         [
           "CMD-SHELL",
-          "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/internal/health').read()\"",
+          "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/internal/ready').read()\"",
         ]
       interval: 10s
       timeout: 5s
@@ -151,8 +151,8 @@ services:
   admin_service:
     image: manifeed_admin_service:local
     build:
-      context: ${ADMIN_SERVICE_REPO_PATH:-../admin_service}
-      dockerfile: Dockerfile
+      context: ${MANIFEED_MULTI_REPO_PATH:-..}
+      dockerfile: admin_service/Dockerfile
       provenance: false
       sbom: false
     container_name: manifeed_admin_service
@@ -207,8 +207,8 @@ services:
   content_service:
     image: manifeed_content_service:local
     build:
-      context: ${CONTENT_SERVICE_REPO_PATH:-../content_service}
-      dockerfile: Dockerfile
+      context: ${MANIFEED_MULTI_REPO_PATH:-..}
+      dockerfile: content_service/Dockerfile
       provenance: false
       sbom: false
     container_name: manifeed_content_service
@@ -254,8 +254,8 @@ services:
   worker_service:
     image: manifeed_worker_service:local
     build:
-      context: ${WORKER_SERVICE_REPO_PATH:-../worker_service}
-      dockerfile: Dockerfile
+      context: ${MANIFEED_MULTI_REPO_PATH:-..}
+      dockerfile: worker_service/Dockerfile
       provenance: false
       sbom: false
     container_name: manifeed_worker_service
