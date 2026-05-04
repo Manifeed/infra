@@ -44,23 +44,44 @@ def _ensure_database(database_url: str) -> None:
     if not database_name:
         raise RuntimeError(f"Database URL must include a database name: {database_url}")
 
-    admin_url = url.set(database="postgres", drivername="postgresql")
-    connect_kwargs = {
-        "host": admin_url.host,
-        "port": admin_url.port or 5432,
-        "dbname": admin_url.database,
-        "user": admin_url.username,
-        "password": admin_url.password,
-        "autocommit": True,
-    }
-    with psycopg.connect(**connect_kwargs) as connection:
-        exists = connection.execute(
-            "SELECT 1 FROM pg_database WHERE datname = %s",
-            (database_name,),
-        ).fetchone()
-        if exists is not None:
-            return
-        connection.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(database_name)))
+    for admin_database in _admin_database_candidates(database_name):
+        admin_url = url.set(database=admin_database, drivername="postgresql")
+        connect_kwargs = {
+            "host": admin_url.host,
+            "port": admin_url.port or 5432,
+            "dbname": admin_url.database,
+            "user": admin_url.username,
+            "password": admin_url.password,
+            "autocommit": True,
+        }
+        try:
+            with psycopg.connect(**connect_kwargs) as connection:
+                exists = connection.execute(
+                    "SELECT 1 FROM pg_database WHERE datname = %s",
+                    (database_name,),
+                ).fetchone()
+                if exists is not None:
+                    return
+                connection.execute(
+                    sql.SQL("CREATE DATABASE {}").format(sql.Identifier(database_name))
+                )
+                return
+        except psycopg.OperationalError:
+            continue
+    raise RuntimeError(
+        "Unable to connect to an administrative database to create "
+        f"{database_name!r}. Checked: {', '.join(_admin_database_candidates(database_name))}"
+    )
+
+
+def _admin_database_candidates(database_name: str) -> list[str]:
+    candidates = [
+        os.getenv("POSTGRES_ADMIN_DATABASE", "").strip(),
+        database_name,
+        "postgres",
+        "template1",
+    ]
+    return [candidate for index, candidate in enumerate(candidates) if candidate and candidate not in candidates[:index]]
 
 
 if __name__ == "__main__":

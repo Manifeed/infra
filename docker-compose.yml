@@ -49,6 +49,7 @@ services:
       provenance: false
       sbom: false
     environment:
+      POSTGRES_ADMIN_DATABASE: ${POSTGRES_DB:-manifeed_content}
       CONTENT_DATABASE_URL: postgresql://${POSTGRES_USER:-manifeed}:${POSTGRES_PASSWORD:-manifeed}@postgres:5432/${CONTENT_POSTGRES_DB:-manifeed_content}
       IDENTITY_DATABASE_URL: postgresql://${POSTGRES_USER:-manifeed}:${POSTGRES_PASSWORD:-manifeed}@postgres:5432/${IDENTITY_POSTGRES_DB:-manifeed_identity}
       WORKERS_DATABASE_URL: postgresql://${POSTGRES_USER:-manifeed}:${POSTGRES_PASSWORD:-manifeed}@postgres:5432/${WORKERS_POSTGRES_DB:-manifeed_workers}
@@ -107,6 +108,8 @@ services:
     container_name: manifeed_public_api
     environment:
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost,http://localhost:3000,http://localhost:8080}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost}
+      ALLOWED_HOSTS: ${PUBLIC_API_ALLOWED_HOSTS:-public_api,manifeed_public_api}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       RATE_LIMIT_REDIS_REQUIRED: ${RATE_LIMIT_REDIS_REQUIRED:-false}
       AUTH_SERVICE_URL: ${AUTH_SERVICE_URL:-http://auth_service:8000}
@@ -156,13 +159,14 @@ services:
       provenance: false
       sbom: false
     container_name: manifeed_admin_service
+    # RSS sync updates the bind-mounted /rss_feeds git repository during local dev.
+    user: "0:0"
     command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
     environment:
       CONTENT_DATABASE_URL: postgresql://${POSTGRES_USER:-manifeed}:${POSTGRES_PASSWORD:-manifeed}@postgres:5432/${CONTENT_POSTGRES_DB:-manifeed_content}
       IDENTITY_DATABASE_URL: postgresql://${POSTGRES_USER:-manifeed}:${POSTGRES_PASSWORD:-manifeed}@postgres:5432/${IDENTITY_POSTGRES_DB:-manifeed_identity}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost,http://localhost:3000,http://localhost:8080}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
-      RATE_LIMIT_REDIS_REQUIRED: ${RATE_LIMIT_REDIS_REQUIRED:-false}
       REQUIRE_EXPLICIT_DATABASE_URLS: ${REQUIRE_EXPLICIT_DATABASE_URLS:-false}
       USER_SERVICE_URL: ${USER_SERVICE_URL:-http://user_service:8000}
       USER_SERVICE_TIMEOUT_SECONDS: ${USER_SERVICE_TIMEOUT_SECONDS:-5}
@@ -217,8 +221,6 @@ services:
       CONTENT_READ_DATABASE_URL: ${CONTENT_READ_DATABASE_URL:-}
       CONTENT_DATABASE_URL: postgresql://${POSTGRES_USER:-manifeed}:${POSTGRES_PASSWORD:-manifeed}@postgres:5432/${CONTENT_POSTGRES_DB:-manifeed_content}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost,http://localhost:3000,http://localhost:8080}
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
-      RATE_LIMIT_REDIS_REQUIRED: ${RATE_LIMIT_REDIS_REQUIRED:-false}
       REQUIRE_EXPLICIT_DATABASE_URLS: ${REQUIRE_EXPLICIT_DATABASE_URLS:-false}
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-}
       REQUIRE_INTERNAL_SERVICE_TOKEN: ${REQUIRE_INTERNAL_SERVICE_TOKEN:-true}
@@ -228,8 +230,6 @@ services:
       RSS_FEEDS_REPOSITORY_PATH: ${RSS_FEEDS_REPOSITORY_PATH:-/rss_feeds}
     depends_on:
       postgres:
-        condition: service_healthy
-      redis:
         condition: service_healthy
       qdrant:
         condition: service_started
@@ -264,19 +264,17 @@ services:
       CONTENT_DATABASE_URL: postgresql://${POSTGRES_USER:-manifeed}:${POSTGRES_PASSWORD:-manifeed}@postgres:5432/${CONTENT_POSTGRES_DB:-manifeed_content}
       IDENTITY_DATABASE_URL: postgresql://${POSTGRES_USER:-manifeed}:${POSTGRES_PASSWORD:-manifeed}@postgres:5432/${IDENTITY_POSTGRES_DB:-manifeed_identity}
       WORKERS_DATABASE_URL: postgresql://${POSTGRES_USER:-manifeed}:${POSTGRES_PASSWORD:-manifeed}@postgres:5432/${WORKERS_POSTGRES_DB:-manifeed_workers}
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
-      RATE_LIMIT_REDIS_REQUIRED: ${RATE_LIMIT_REDIS_REQUIRED:-false}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost}
       REQUIRE_EXPLICIT_DATABASE_URLS: ${REQUIRE_EXPLICIT_DATABASE_URLS:-false}
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-}
       REQUIRE_INTERNAL_SERVICE_TOKEN: ${REQUIRE_INTERNAL_SERVICE_TOKEN:-true}
       QDRANT_URL: ${QDRANT_URL:-http://qdrant:6333}
       QDRANT_COLLECTION_NAME: ${QDRANT_COLLECTION_NAME:-article_embeddings}
       SOURCE_EMBEDDING_DIMENSIONS: ${SOURCE_EMBEDDING_DIMENSIONS:-1024}
+      RSS_WORKER_VERSION: ${RSS_WORKER_VERSION:-0.1.4}
       WORKER_RELEASE_CATALOG_PATH: /app/var/worker-releases/catalog.json
     depends_on:
       postgres:
-        condition: service_healthy
-      redis:
         condition: service_healthy
       qdrant:
         condition: service_started
@@ -305,9 +303,6 @@ services:
     container_name: manifeed_auth_service
     environment:
       IDENTITY_DATABASE_URL: postgresql://${POSTGRES_USER:-manifeed}:${POSTGRES_PASSWORD:-manifeed}@postgres:5432/${IDENTITY_POSTGRES_DB:-manifeed_identity}
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
-      RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
-      RATE_LIMIT_REDIS_REQUIRED: ${RATE_LIMIT_REDIS_REQUIRED:-true}
       REQUIRE_EXPLICIT_DATABASE_URLS: ${REQUIRE_EXPLICIT_DATABASE_URLS:-true}
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-}
       REQUIRE_INTERNAL_SERVICE_TOKEN: ${REQUIRE_INTERNAL_SERVICE_TOKEN:-true}
@@ -316,8 +311,6 @@ services:
       AUTH_SESSION_TOUCH_INTERVAL_SECONDS: ${AUTH_SESSION_TOUCH_INTERVAL_SECONDS:-300}
     depends_on:
       postgres:
-        condition: service_healthy
-      redis:
         condition: service_healthy
     healthcheck:
       test:
@@ -344,14 +337,24 @@ services:
     container_name: manifeed_user_service
     environment:
       IDENTITY_DATABASE_URL: postgresql://${POSTGRES_USER:-manifeed}:${POSTGRES_PASSWORD:-manifeed}@postgres:5432/${IDENTITY_POSTGRES_DB:-manifeed_identity}
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      AUTH_SERVICE_URL: ${AUTH_SERVICE_URL:-http://auth_service:8000}
+      AUTH_SERVICE_TIMEOUT_SECONDS: ${AUTH_SERVICE_TIMEOUT_SECONDS:-5}
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-}
       REQUIRE_INTERNAL_SERVICE_TOKEN: ${REQUIRE_INTERNAL_SERVICE_TOKEN:-true}
     depends_on:
+      auth_service:
+        condition: service_started
       postgres:
         condition: service_healthy
-      redis:
-        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/internal/ready').read()\"",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     volumes:
       - ${USER_SERVICE_REPO_PATH:-../user_service}:/app:z
     networks:
@@ -359,6 +362,7 @@ services:
     restart: unless-stopped
 
   frontend_admin:
+    image: manifeed_frontend_admin:local
     build:
       context: ${FRONTEND_REPO_PATH:-../frontend}
       dockerfile: Dockerfile
