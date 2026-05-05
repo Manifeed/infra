@@ -1,5 +1,6 @@
 COMPOSE := $(shell if docker compose version >/dev/null 2>&1; then echo "docker compose"; elif docker-compose version >/dev/null 2>&1; then echo "docker-compose"; else echo "docker compose"; fi)
 DC := $(COMPOSE) -f docker-compose.yml
+DC_DEV := $(COMPOSE) -f docker-compose.yml -f docker-compose.dev.yml
 CARGO ?= $(shell if command -v cargo >/dev/null 2>&1; then command -v cargo; elif [ -x "$(HOME)/.cargo/bin/cargo" ]; then printf '%s' "$(HOME)/.cargo/bin/cargo"; else printf '%s' cargo; fi)
 .DEFAULT_GOAL := help
 
@@ -31,12 +32,14 @@ BUILDABLE_APPLICATION_SERVICES := public_api auth_service user_service admin_ser
 BUILDABLE_SERVICES := $(DB_MIGRATION_SERVICE) $(BUILDABLE_APPLICATION_SERVICES)
 RESETTABLE_APPLICATION_SERVICES := edge_nginx frontend_admin public_api auth_service user_service admin_service content_service worker_service
 
-.PHONY: help up build build-all build-missing build-db-migrations build-public-api build-auth-service build-user-service build-admin-service build-content-service build-worker-service build-frontend-admin down restart logs clean clean-all db-migrate db-reset db-backup db-recreate-from-sql db-restore qdrant-backup qdrant-reset qdrant-restore test-services test-public-api test-admin-service test-content-service test-auth-service test-user-service test-worker-service test-worker test-worker-rss test-worker-embedding build-worker-rss-native run-worker-rss-native build-worker-embedding-linux-x86 run-worker-embedding-linux-x86 release-workers release-workers-desktop release-workers-rss release-workers-embedding release-workers-dry-run check-worker-quality check-cargo
+.PHONY: help dev-up dev-down dev-logs up build build-all build-missing build-db-migrations build-public-api build-auth-service build-user-service build-admin-service build-content-service build-worker-service build-frontend-admin build-traefik-dev down restart logs clean clean-all db-migrate db-reset db-backup db-recreate-from-sql db-restore qdrant-backup qdrant-reset qdrant-restore test-services test-public-api test-admin-service test-content-service test-auth-service test-user-service test-worker-service test-worker test-worker-rss test-worker-embedding build-worker-rss-native run-worker-rss-native build-worker-embedding-linux-x86 run-worker-embedding-linux-x86 release-workers release-workers-desktop release-workers-rss release-workers-embedding release-workers-dry-run check-worker-quality check-cargo
 
 help:
 	@printf '%s\n' 'Available targets:'
 	@printf '%s\n' '  make up [SERVICE=name]'
+	@printf '%s\n' '  make dev-up [SERVICE=name]'
 	@printf '%s\n' '  make build [SERVICE=name]'
+	@printf '%s\n' '  make build-traefik-dev'
 	@printf '%s\n' '  make build-public-api'
 	@printf '%s\n' '  make build-auth-service'
 	@printf '%s\n' '  make build-user-service'
@@ -49,7 +52,9 @@ help:
 	@printf '%s\n' '  make up SERVICE=edge_nginx'
 	@printf '%s\n' '  make up SERVICE=db_migrations'
 	@printf '%s\n' '  make down'
+	@printf '%s\n' '  make dev-down'
 	@printf '%s\n' '  make logs [SERVICE=name]'
+	@printf '%s\n' '  make dev-logs [SERVICE=name]'
 	@printf '%s\n' '  make db-migrate'
 	@printf '%s\n' '  make db-reset'
 	@printf '%s\n' '  make db-backup [DB_BACKUP_FILE=./backups/file.tar.gz]'
@@ -75,8 +80,48 @@ help:
 	@printf '%s\n' '  make release-workers-embedding'
 	@printf '\n%s\n' 'Notes:'
 	@printf '%s\n' '  - make up no longer forces docker rebuilds.'
+	@printf '%s\n' '  - make dev-up also starts Traefik with a self-signed localhost certificate.'
 	@printf '%s\n' '  - missing local images are built automatically once, then reused.'
 	@printf '%s\n' '  - make build rebuilds all buildable images, or only SERVICE=name when provided.'
+
+dev-up:
+	@if [ -n "$(SERVICES)" ]; then \
+		echo "Use SERVICE=name with 'make dev-up', not SERVICES=\"...\"."; \
+		exit 1; \
+	fi
+	@if [ -n "$(SERVICE)" ]; then \
+		case "$(SERVICE)" in \
+			traefik_dev) \
+				$(DC_DEV) up -d traefik_dev; \
+				;; \
+			postgres|redis|qdrant) \
+				$(DC_DEV) up -d traefik_dev $(SERVICE); \
+				;; \
+			$(DB_MIGRATION_SERVICE)) \
+				$(DC_DEV) up -d traefik_dev $(CORE_INFRA_SERVICES); \
+				$(MAKE) build-missing SERVICE=$(DB_MIGRATION_SERVICE); \
+				$(DC_DEV) run --rm --no-deps $(DB_MIGRATION_SERVICE); \
+				;; \
+			auth_service|user_service|admin_service|content_service|worker_service|public_api|frontend_admin|edge_nginx) \
+				$(DC_DEV) up -d traefik_dev $(CORE_INFRA_SERVICES); \
+				$(MAKE) build-missing SERVICE=$(DB_MIGRATION_SERVICE); \
+				$(DC_DEV) run --rm --no-deps $(DB_MIGRATION_SERVICE); \
+				$(MAKE) build-missing SERVICES="$(BUILDABLE_APPLICATION_SERVICES)"; \
+				$(DC_DEV) up -d $(SERVICE); \
+				;; \
+			*) \
+				printf 'Unknown service: %s\n' "$(SERVICE)"; \
+				printf 'Available services: traefik_dev %s %s edge_nginx\n' "$(CORE_INFRA_SERVICES)" "$(BUILDABLE_SERVICES)"; \
+				exit 1; \
+				;; \
+		esac; \
+	else \
+		$(DC_DEV) up -d traefik_dev $(CORE_INFRA_SERVICES); \
+		$(MAKE) build-missing SERVICE=$(DB_MIGRATION_SERVICE); \
+		$(DC_DEV) run --rm --no-deps $(DB_MIGRATION_SERVICE); \
+		$(MAKE) build-missing SERVICES="$(BUILDABLE_APPLICATION_SERVICES)"; \
+		$(DC_DEV) up -d $(APPLICATION_SERVICES); \
+	fi
 
 up:
 	@if [ -n "$(SERVICES)" ]; then \
@@ -184,11 +229,21 @@ build-worker-service:
 build-frontend-admin:
 	$(DC) build frontend_admin
 
+build-traefik-dev:
+	$(DC_DEV) build traefik_dev
+
 down:
 	@if [ -n "$(SERVICE)" ]; then \
 		$(DC) stop $(SERVICE); \
 	else \
 		$(DC) down; \
+	fi
+
+dev-down:
+	@if [ -n "$(SERVICE)" ]; then \
+		$(DC_DEV) stop $(SERVICE); \
+	else \
+		$(DC_DEV) down; \
 	fi
 
 restart:
@@ -203,6 +258,13 @@ logs:
 		$(DC) logs -f $(SERVICE); \
 	else \
 		$(DC) logs -f; \
+	fi
+
+dev-logs:
+	@if [ -n "$(SERVICE)" ]; then \
+		$(DC_DEV) logs -f $(SERVICE); \
+	else \
+		$(DC_DEV) logs -f; \
 	fi
 
 clean:

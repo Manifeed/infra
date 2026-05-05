@@ -34,6 +34,25 @@ make help
 make up
 ```
 
+Pour demarrer la stack complete en mode dev avec Traefik local et certificat
+autosigne pour `https://localhost`, utilisez :
+
+```bash
+cp .env.example .env
+make dev-up
+```
+
+Le premier lancement construit l'image `manifeed_traefik_dev:local`, cree le
+certificat local puis expose l'application sur :
+
+- `https://localhost`
+- `http://localhost` -> redirige vers HTTPS
+- `https://traefik.localhost` pour le dashboard Traefik
+
+Le certificat est genere automatiquement dans un volume Docker local. Le
+navigateur affichera un avertissement normal de certificat autosigne lors de la
+premiere visite.
+
 `make up` lance `postgres`, `redis` et `qdrant`, applique les migrations Alembic via
 `db_migrations`, puis demarre `auth_service`, `user_service`, `admin_service`,
 `content_service`, `worker_service`, `public_api`, le frontend et l'edge Nginx.
@@ -52,14 +71,20 @@ la gateway est reellement prete.
 
 Services exposes par defaut :
 
-- edge Nginx : `http://localhost`
-- postgres : `localhost:5432`
+- aucun service stateful n'est publie sur l'hote par le compose principal
+- edge Nginx n'est pas publie sur l'hote; Traefik le joint via le reseau Docker externe `${TRAEFIK_NETWORK_NAME:-traefik_proxy}`
+- le compose dev `docker-compose.dev.yml` publie Traefik sur `80`, `443` et son dashboard sur `8088`
+
+Pour le developpement local direct, utilisez un override compose explicite pour
+publier nginx, Postgres, Redis ou Qdrant sur `127.0.0.1`.
 
 ## Commandes utiles
 
 ```bash
 make logs
+make dev-logs
 make build
+make build-traefik-dev
 make build SERVICE=public_api
 make build-public-api
 make build-auth-service
@@ -69,8 +94,10 @@ make build-content-service
 make build-worker-service
 make build-frontend-admin
 make up SERVICE=admin_service
+make dev-up SERVICE=edge_nginx
 make up SERVICE=public_api
 make up SERVICE=db_migrations
+make dev-down
 make db-migrate
 make db-backup
 make db-recreate-from-sql DB_RESTORE_FILE=./backups/manifeed_dump.tar.gz
@@ -115,6 +142,14 @@ Contrat edge actuel :
 
 Les releases workers sont donc telechargees via l'edge, mais servent toujours
 des artefacts fournis par `worker_service`.
+
+Flux public attendu :
+
+`Client -> Traefik HTTPS/domain -> nginx HTTP interne -> public_api -> services internes`
+
+En mode dev, `docker-compose.dev.yml` ajoute un Traefik local qui route
+`localhost` vers `edge_nginx` avec un certificat autosigne genere au demarrage
+du conteneur, directement sur le reseau interne du compose.
 
 ## Base de donnees et migrations
 
