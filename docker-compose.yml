@@ -149,10 +149,11 @@ services:
     container_name: manifeed_admin_service
     # RSS sync updates the bind-mounted /rss_feeds git repository during local dev.
     user: "0:0"
-    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
     environment:
-      CONTENT_DATABASE_URL: postgresql://${POSTGRES_USER:-manifeed}:${POSTGRES_PASSWORD:-manifeed}@postgres:5432/${CONTENT_POSTGRES_DB:-manifeed_content}
-      IDENTITY_DATABASE_URL: postgresql://${POSTGRES_USER:-manifeed}:${POSTGRES_PASSWORD:-manifeed}@postgres:5432/${IDENTITY_POSTGRES_DB:-manifeed_identity}
+      CONTENT_READ_DATABASE_URL: ${CONTENT_READ_DATABASE_URL:-postgresql://${POSTGRES_USER:-manifeed}:${POSTGRES_PASSWORD:-manifeed}@postgres:5432/${CONTENT_POSTGRES_DB:-manifeed_content}}
+      CONTENT_WRITE_DATABASE_URL: ${CONTENT_WRITE_DATABASE_URL:-postgresql://${POSTGRES_USER:-manifeed}:${POSTGRES_PASSWORD:-manifeed}@postgres:5432/${CONTENT_POSTGRES_DB:-manifeed_content}}
+      IDENTITY_READ_DATABASE_URL: ${IDENTITY_READ_DATABASE_URL:-postgresql://${POSTGRES_USER:-manifeed}:${POSTGRES_PASSWORD:-manifeed}@postgres:5432/${IDENTITY_POSTGRES_DB:-manifeed_identity}}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost,http://localhost:3000,http://localhost:8080}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       USER_SERVICE_URL: ${USER_SERVICE_URL:-http://user_service:8000}
@@ -201,12 +202,9 @@ services:
       provenance: false
       sbom: false
     container_name: manifeed_content_service
-    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
     environment:
-      CONTENT_READ_DATABASE_URL: ${CONTENT_READ_DATABASE_URL:-}
-      CONTENT_DATABASE_URL: postgresql://${POSTGRES_USER:-manifeed}:${POSTGRES_PASSWORD:-manifeed}@postgres:5432/${CONTENT_POSTGRES_DB:-manifeed_content}
-      IDENTITY_DATABASE_URL: postgresql://${POSTGRES_USER:-manifeed}:${POSTGRES_PASSWORD:-manifeed}@postgres:5432/${IDENTITY_POSTGRES_DB:-manifeed_identity}
-      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost,http://localhost:3000,http://localhost:8080}
+      CONTENT_READ_DATABASE_URL: ${CONTENT_READ_DATABASE_URL:-postgresql://${POSTGRES_USER:-manifeed}:${POSTGRES_PASSWORD:-manifeed}@postgres:5432/${CONTENT_POSTGRES_DB:-manifeed_content}}
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-}
       QDRANT_URL: ${QDRANT_URL:-http://qdrant:6333}
       QDRANT_COLLECTION_NAME: ${QDRANT_COLLECTION_NAME:-article_embeddings}
@@ -245,9 +243,11 @@ services:
     container_name: manifeed_worker_service
     command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
     environment:
-      CONTENT_DATABASE_URL: postgresql://${POSTGRES_USER:-manifeed}:${POSTGRES_PASSWORD:-manifeed}@postgres:5432/${CONTENT_POSTGRES_DB:-manifeed_content}
-      IDENTITY_DATABASE_URL: postgresql://${POSTGRES_USER:-manifeed}:${POSTGRES_PASSWORD:-manifeed}@postgres:5432/${IDENTITY_POSTGRES_DB:-manifeed_identity}
-      WORKERS_DATABASE_URL: postgresql://${POSTGRES_USER:-manifeed}:${POSTGRES_PASSWORD:-manifeed}@postgres:5432/${WORKERS_POSTGRES_DB:-manifeed_workers}
+      CONTENT_READ_DATABASE_URL: ${CONTENT_READ_DATABASE_URL:-postgresql://${POSTGRES_USER:-manifeed}:${POSTGRES_PASSWORD:-manifeed}@postgres:5432/${CONTENT_POSTGRES_DB:-manifeed_content}}
+      CONTENT_WRITE_DATABASE_URL: ${CONTENT_WRITE_DATABASE_URL:-postgresql://${POSTGRES_USER:-manifeed}:${POSTGRES_PASSWORD:-manifeed}@postgres:5432/${CONTENT_POSTGRES_DB:-manifeed_content}}
+      IDENTITY_READ_DATABASE_URL: ${IDENTITY_READ_DATABASE_URL:-postgresql://${POSTGRES_USER:-manifeed}:${POSTGRES_PASSWORD:-manifeed}@postgres:5432/${IDENTITY_POSTGRES_DB:-manifeed_identity}}
+      WORKERS_READ_DATABASE_URL: ${WORKERS_READ_DATABASE_URL:-postgresql://${POSTGRES_USER:-manifeed}:${POSTGRES_PASSWORD:-manifeed}@postgres:5432/${WORKERS_POSTGRES_DB:-manifeed_workers}}
+      WORKERS_WRITE_DATABASE_URL: ${WORKERS_WRITE_DATABASE_URL:-postgresql://${POSTGRES_USER:-manifeed}:${POSTGRES_PASSWORD:-manifeed}@postgres:5432/${WORKERS_POSTGRES_DB:-manifeed_workers}}
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-https://localhost}
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-}
       QDRANT_URL: ${QDRANT_URL:-http://qdrant:6333}
@@ -284,7 +284,8 @@ services:
       sbom: false
     container_name: manifeed_auth_service
     environment:
-      IDENTITY_DATABASE_URL: postgresql://${POSTGRES_USER:-manifeed}:${POSTGRES_PASSWORD:-manifeed}@postgres:5432/${IDENTITY_POSTGRES_DB:-manifeed_identity}
+      IDENTITY_READ_DATABASE_URL: ${IDENTITY_READ_DATABASE_URL:-postgresql://${POSTGRES_USER:-manifeed}:${POSTGRES_PASSWORD:-manifeed}@postgres:5432/${IDENTITY_POSTGRES_DB:-manifeed_identity}}
+      IDENTITY_WRITE_DATABASE_URL: ${IDENTITY_WRITE_DATABASE_URL:-postgresql://${POSTGRES_USER:-manifeed}:${POSTGRES_PASSWORD:-manifeed}@postgres:5432/${IDENTITY_POSTGRES_DB:-manifeed_identity}}
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-}
       DB_POOL_SIZE: ${AUTH_SERVICE_DB_POOL_SIZE:-5}
       DB_MAX_OVERFLOW: ${AUTH_SERVICE_DB_MAX_OVERFLOW:-10}
@@ -316,7 +317,8 @@ services:
       sbom: false
     container_name: manifeed_user_service
     environment:
-      IDENTITY_DATABASE_URL: postgresql://${POSTGRES_USER:-manifeed}:${POSTGRES_PASSWORD:-manifeed}@postgres:5432/${IDENTITY_POSTGRES_DB:-manifeed_identity}
+      IDENTITY_READ_DATABASE_URL: ${IDENTITY_READ_DATABASE_URL:-postgresql://${POSTGRES_USER:-manifeed}:${POSTGRES_PASSWORD:-manifeed}@postgres:5432/${IDENTITY_POSTGRES_DB:-manifeed_identity}}
+      IDENTITY_WRITE_DATABASE_URL: ${IDENTITY_WRITE_DATABASE_URL:-postgresql://${POSTGRES_USER:-manifeed}:${POSTGRES_PASSWORD:-manifeed}@postgres:5432/${IDENTITY_POSTGRES_DB:-manifeed_identity}}
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-}
     depends_on:
       postgres:
