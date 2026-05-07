@@ -120,6 +120,12 @@ make test-worker-embedding
 - `WORKER_SERVICE_REPO_PATH`
 - `WORKERS_REPO_PATH`
 - `RSS_FEEDS_HOST_PATH`
+- `SOURCE_SEARCH_MODEL_HOST_PATH`
+
+`SOURCE_SEARCH_MODEL_HOST_PATH` doit pointer vers un dossier hote contenant les
+artefacts du modele de recherche (`model.onnx`, `tokenizer.json`,
+`config.json`). Ce dossier est monte en lecture seule dans `content_service` au
+chemin `SOURCE_SEARCH_MODEL_DIR` (par defaut `/models/source-search`).
 
 `MANIFEED_MULTI_REPO_PATH` pointe vers la racine du monorepo pour les builds
 backend. Les autres variables restent utiles pour les montages de code source

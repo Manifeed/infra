@@ -26,13 +26,13 @@ QDRANT_BACKUP_DIR ?= ./backups/qdrant
 QDRANT_SNAPSHOT_FILE ?=
 
 CORE_INFRA_SERVICES := postgres redis qdrant
-BACKEND_APPLICATION_SERVICES := auth_service user_service admin_service content_service worker_service public_api
+BACKEND_APPLICATION_SERVICES := auth_service user_service admin_service content_service embedding_indexer_service worker_service public_api
 APPLICATION_SERVICES := $(BACKEND_APPLICATION_SERVICES) frontend_admin edge_nginx
-BUILDABLE_APPLICATION_SERVICES := public_api auth_service user_service admin_service content_service worker_service frontend_admin
+BUILDABLE_APPLICATION_SERVICES := public_api auth_service user_service admin_service content_service embedding_indexer_service worker_service frontend_admin
 BUILDABLE_SERVICES := $(DB_MIGRATION_SERVICE) $(BUILDABLE_APPLICATION_SERVICES)
-RESETTABLE_APPLICATION_SERVICES := edge_nginx frontend_admin public_api auth_service user_service admin_service content_service worker_service
+RESETTABLE_APPLICATION_SERVICES := edge_nginx frontend_admin public_api auth_service user_service admin_service content_service embedding_indexer_service worker_service
 
-.PHONY: help dev-up dev-down dev-logs up build build-all build-missing build-db-migrations build-public-api build-auth-service build-user-service build-admin-service build-content-service build-worker-service build-frontend-admin build-traefik-dev down restart logs clean clean-all db-migrate db-reset db-backup db-recreate-from-sql db-restore qdrant-backup qdrant-reset qdrant-restore test-services test-public-api test-admin-service test-content-service test-auth-service test-user-service test-worker-service test-worker test-worker-rss test-worker-embedding build-worker-rss-native run-worker-rss-native build-worker-embedding-linux-x86 run-worker-embedding-linux-x86 release-workers release-workers-desktop release-workers-rss release-workers-embedding release-workers-dry-run check-worker-quality check-cargo
+.PHONY: help dev-up dev-down dev-logs up build build-all build-missing build-db-migrations build-public-api build-auth-service build-user-service build-admin-service build-content-service build-embedding-indexer-service build-worker-service build-frontend-admin build-traefik-dev down restart logs clean clean-all docker-prune-all db-migrate db-reset db-backup db-recreate-from-sql db-restore qdrant-backup qdrant-reset qdrant-restore test-services test-public-api test-admin-service test-content-service test-auth-service test-user-service test-worker-service test-worker test-worker-rss test-worker-embedding build-worker-rss-native run-worker-rss-native build-worker-embedding-linux-x86 run-worker-embedding-linux-x86 release-workers release-workers-desktop release-workers-rss release-workers-embedding release-workers-dry-run check-worker-quality check-cargo clean-workers-artifacts
 
 help:
 	@printf '%s\n' 'Available targets:'
@@ -53,6 +53,7 @@ help:
 	@printf '%s\n' '  make up SERVICE=db_migrations'
 	@printf '%s\n' '  make down'
 	@printf '%s\n' '  make dev-down'
+	@printf '%s\n' '  make docker-prune-all'
 	@printf '%s\n' '  make logs [SERVICE=name]'
 	@printf '%s\n' '  make dev-logs [SERVICE=name]'
 	@printf '%s\n' '  make db-migrate'
@@ -102,7 +103,7 @@ dev-up:
 				$(MAKE) build-missing SERVICE=$(DB_MIGRATION_SERVICE); \
 				$(DC_DEV) run --rm --no-deps $(DB_MIGRATION_SERVICE); \
 				;; \
-			auth_service|user_service|admin_service|content_service|worker_service|public_api|frontend_admin|edge_nginx) \
+			auth_service|user_service|admin_service|content_service|embedding_indexer_service|worker_service|public_api|frontend_admin|edge_nginx) \
 				$(DC_DEV) up -d traefik_dev $(CORE_INFRA_SERVICES); \
 				$(MAKE) build-missing SERVICE=$(DB_MIGRATION_SERVICE); \
 				$(DC_DEV) run --rm --no-deps $(DB_MIGRATION_SERVICE); \
@@ -138,7 +139,7 @@ up:
 				$(MAKE) build-missing SERVICE=$(DB_MIGRATION_SERVICE); \
 				$(DC) run --rm --no-deps $(DB_MIGRATION_SERVICE); \
 				;; \
-			auth_service|user_service|admin_service|content_service|worker_service|public_api|frontend_admin|edge_nginx) \
+			auth_service|user_service|admin_service|content_service|embedding_indexer_service|worker_service|public_api|frontend_admin|edge_nginx) \
 				$(DC) up -d $(CORE_INFRA_SERVICES); \
 				$(MAKE) build-missing SERVICE=$(DB_MIGRATION_SERVICE); \
 				$(DC) run --rm --no-deps $(DB_MIGRATION_SERVICE); \
@@ -166,7 +167,7 @@ build:
 	if [ -z "$$services" ]; then services="$(BUILDABLE_SERVICES)"; fi; \
 	for service in $$services; do \
 		case "$$service" in \
-			db_migrations|public_api|auth_service|user_service|admin_service|content_service|worker_service|frontend_admin) ;; \
+			db_migrations|public_api|auth_service|user_service|admin_service|content_service|embedding_indexer_service|worker_service|frontend_admin) ;; \
 			*) \
 				printf 'Unknown buildable service: %s\n' "$$service"; \
 				printf 'Buildable services: %s\n' "$(BUILDABLE_SERVICES)"; \
@@ -191,6 +192,7 @@ build-missing:
 			user_service) image="manifeed_user_service:local" ;; \
 			admin_service) image="manifeed_admin_service:local" ;; \
 			content_service) image="manifeed_content_service:local" ;; \
+			embedding_indexer_service) image="manifeed_embedding_indexer_service:local" ;; \
 			worker_service) image="manifeed_worker_service:local" ;; \
 			frontend_admin) image="manifeed_frontend_admin:local" ;; \
 			*) \
@@ -223,6 +225,9 @@ build-admin-service:
 build-content-service:
 	$(DC) build content_service
 
+build-embedding-indexer-service:
+	$(DC) build embedding_indexer_service
+
 build-worker-service:
 	$(DC) build worker_service
 
@@ -245,6 +250,9 @@ dev-down:
 	else \
 		$(DC_DEV) down; \
 	fi
+
+docker-prune-all:
+	docker system prune -a -f --volumes
 
 restart:
 	@if [ -n "$(SERVICE)" ]; then \
@@ -495,3 +503,7 @@ release-workers-rss: check-cargo
 
 release-workers-embedding: check-cargo
 	cd $(WORKERS_REPO_PATH) && bash ./installers/release-workers.sh --family embedding
+
+clean-workers-artifacts: check-cargo
+	cd $(WORKERS_REPO_PATH) && $(CARGO) clean
+	rm -rf $(WORKERS_REPO_PATH)/dist/*
