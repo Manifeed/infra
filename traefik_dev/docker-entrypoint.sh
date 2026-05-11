@@ -60,14 +60,14 @@ tls:
 http:
   routers:
     manifeed-edge-http:
-      rule: Host(\`$DEV_HOST\`)
+      rule: Host(\`localhost\`) || Host(\`127.0.0.1\`) || Host(\`$DEV_HOST\`)
       entryPoints:
         - web
       middlewares:
         - manifeed-https-redirect
       service: manifeed-edge
     manifeed-edge-https:
-      rule: Host(\`$DEV_HOST\`)
+      rule: Host(\`localhost\`) || Host(\`127.0.0.1\`) || Host(\`$DEV_HOST\`)
       entryPoints:
         - websecure
       tls: {}

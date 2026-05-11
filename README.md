@@ -143,19 +143,20 @@ La configuration Nginx locale est centralisee dans `infra/nginx/` :
 Contrat edge actuel :
 
 - `/api/*` -> `public_api`
+- `/install` -> `public_api` (script d'installation `crawler_rss`)
 - `/workers/api/*` -> `worker_service`
 - `/` et `/_next/*` -> `frontend_admin`
 
-Les releases workers sont donc telechargees via l'edge, mais servent toujours
-des artefacts fournis par `worker_service`.
+Apres modification de `nginx/conf.d/edge.conf`, recharge Nginx :
+`docker compose exec edge_nginx nginx -s reload` (ou recree le service `edge_nginx`).
 
 Flux public attendu :
 
 `Client -> Traefik HTTPS/domain -> nginx HTTP interne -> public_api -> services internes`
 
 En mode dev, `docker-compose.dev.yml` ajoute un Traefik local qui route
-`localhost` vers `edge_nginx` avec un certificat autosigne genere au demarrage
-du conteneur, directement sur le reseau interne du compose.
+`localhost`, `127.0.0.1` et `TRAEFIK_DEV_HOST` vers `edge_nginx` avec un
+certificat autosigne genere au demarrage du conteneur, sur le reseau interne du compose.
 
 ## Base de donnees et migrations
 

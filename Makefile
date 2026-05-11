@@ -15,7 +15,6 @@ WORKER_SERVICE_REPO_PATH ?= ../worker_service
 WORKERS_REPO_PATH ?= ../workers
 SERVICE_PYTEST_ARGS ?= tests -vv --color=yes --tb=short -ra
 WORKER_CARGO_TEST_ARGS ?=
-EMBEDDING_WORKER_CARGO_TEST_ARGS ?=
 RUST_LINUX_X86_TARGET := x86_64-unknown-linux-gnu
 DB_BACKUP_DIR ?= ./backups
 DB_BACKUP_FILE ?= $(DB_BACKUP_DIR)/manifeed_$(shell date +%Y%m%d_%H%M%S).tar.gz
@@ -32,7 +31,7 @@ BUILDABLE_APPLICATION_SERVICES := public_api auth_service user_service admin_ser
 BUILDABLE_SERVICES := $(DB_MIGRATION_SERVICE) $(BUILDABLE_APPLICATION_SERVICES)
 RESETTABLE_APPLICATION_SERVICES := edge_nginx frontend_admin public_api auth_service user_service admin_service content_service embedding_indexer_service worker_service
 
-.PHONY: help dev-up dev-down dev-logs up build build-all build-missing build-db-migrations build-public-api build-auth-service build-user-service build-admin-service build-content-service build-embedding-indexer-service build-worker-service build-frontend-admin build-traefik-dev down restart logs clean clean-all docker-prune-all db-migrate db-reset db-backup db-recreate-from-sql db-restore qdrant-backup qdrant-reset qdrant-restore test-services test-public-api test-admin-service test-content-service test-auth-service test-user-service test-worker-service test-worker test-worker-rss test-worker-embedding build-worker-rss-native run-worker-rss-native build-worker-embedding-linux-x86 run-worker-embedding-linux-x86 release-workers release-workers-desktop release-workers-rss release-workers-embedding release-workers-dry-run check-worker-quality check-cargo clean-workers-artifacts
+.PHONY: help dev-up dev-down dev-logs up build build-all build-missing build-db-migrations build-public-api build-auth-service build-user-service build-admin-service build-content-service build-embedding-indexer-service build-worker-service build-frontend-admin build-traefik-dev down restart logs clean clean-all docker-prune-all db-migrate db-reset db-backup db-recreate-from-sql db-restore qdrant-backup qdrant-reset qdrant-restore test-services test-public-api test-admin-service test-content-service test-auth-service test-user-service test-worker-service test-worker test-crawler-rss build-crawler-rss-native run-crawler-rss-native release-workers release-workers-rss release-workers-dry-run check-worker-quality check-cargo clean-workers-artifacts
 
 help:
 	@printf '%s\n' 'Available targets:'
@@ -72,13 +71,11 @@ help:
 	@printf '%s\n' '  make test-content-service'
 	@printf '%s\n' '  make test-worker-service'
 	@printf '%s\n' '  make test-worker'
-	@printf '%s\n' '  make test-worker-embedding'
+	@printf '%s\n' '  make test-crawler-rss'
 	@printf '%s\n' '  make check-worker-quality'
-	@printf '%s\n' '  make release-workers [RELEASE_WORKER_FAMILIES="desktop rss embedding"]'
-	@printf '%s\n' '  make release-workers-dry-run [RELEASE_WORKER_FAMILIES="desktop rss embedding"]'
-	@printf '%s\n' '  make release-workers-desktop'
+	@printf '%s\n' '  make release-workers [RELEASE_WORKER_FAMILIES="rss"]'
+	@printf '%s\n' '  make release-workers-dry-run [RELEASE_WORKER_FAMILIES="rss"]'
 	@printf '%s\n' '  make release-workers-rss'
-	@printf '%s\n' '  make release-workers-embedding'
 	@printf '\n%s\n' 'Notes:'
 	@printf '%s\n' '  - make up no longer forces docker rebuilds.'
 	@printf '%s\n' '  - make dev-up also starts Traefik with a self-signed localhost certificate.'
@@ -439,7 +436,7 @@ qdrant-restore:
 	printf 'Qdrant collection %s restored from %s\n' "$$coll" "$$snapfile"
 
 test-public-api:
-	$(DC) run --rm --no-deps --build public_api sh -lc "python -m pytest $(SERVICE_PYTEST_ARGS)"
+	$(DC) run --rm --no-deps --build public_api sh -lc "/opt/venv/bin/python -m pytest $(SERVICE_PYTEST_ARGS)"
 
 test-admin-service:
 	$(DC) run --rm --no-deps --build admin_service sh -lc "PIP_ROOT_USER_ACTION=ignore python -m pip install --disable-pip-version-check --quiet pytest && python -m pytest $(SERVICE_PYTEST_ARGS)"
@@ -454,7 +451,7 @@ test-user-service:
 	$(DC) run --rm --no-deps --build user_service sh -lc "python -m pytest $(SERVICE_PYTEST_ARGS)"
 
 test-worker-service:
-	$(DC) run --rm --no-deps --build worker_service sh -lc "python -m pytest $(SERVICE_PYTEST_ARGS)"
+	$(DC) run --rm --no-deps --build worker_service sh -lc "/opt/venv/bin/python -m pytest $(SERVICE_PYTEST_ARGS)"
 
 test-services: test-public-api test-admin-service test-content-service test-auth-service test-user-service test-worker-service
 
@@ -465,29 +462,20 @@ check-cargo:
 		exit 127; \
 	fi
 
-test-worker-rss: check-cargo
-	cd $(WORKERS_REPO_PATH) && $(CARGO) test -p worker-rss $(WORKER_CARGO_TEST_ARGS)
+test-crawler-rss: check-cargo
+	cd $(WORKERS_REPO_PATH) && $(CARGO) test -p crawler_rss $(WORKER_CARGO_TEST_ARGS)
 
-test-worker: test-worker-rss
-
-test-worker-embedding: check-cargo
-	cd $(WORKERS_REPO_PATH) && $(CARGO) test -p worker-source-embedding $(EMBEDDING_WORKER_CARGO_TEST_ARGS)
+test-worker: test-crawler-rss
 
 check-worker-quality: check-cargo
 	cd $(WORKERS_REPO_PATH) && python3 ./scripts/check_file_lengths.py .
 	cd $(WORKERS_REPO_PATH) && $(CARGO) clippy --workspace --all-targets
 
-build-worker-rss-native: check-cargo
-	cd $(WORKERS_REPO_PATH) && $(CARGO) build --release -p worker-rss
+build-crawler-rss-native: check-cargo
+	cd $(WORKERS_REPO_PATH) && $(CARGO) build --release -p crawler_rss
 
-run-worker-rss-native: build-worker-rss-native
-	$(WORKERS_REPO_PATH)/target/release/worker-rss
-
-build-worker-embedding-linux-x86: check-cargo
-	cd $(WORKERS_REPO_PATH) && $(CARGO) build --release -p worker-source-embedding --target $(RUST_LINUX_X86_TARGET)
-
-run-worker-embedding-linux-x86: build-worker-embedding-linux-x86
-	$(WORKERS_REPO_PATH)/target/$(RUST_LINUX_X86_TARGET)/release/worker-source-embedding
+run-crawler-rss-native: build-crawler-rss-native
+	$(WORKERS_REPO_PATH)/target/release/crawler_rss
 
 release-workers: check-cargo
 	cd $(WORKERS_REPO_PATH) && bash ./installers/release-workers.sh $(foreach family,$(RELEASE_WORKER_FAMILIES),--family $(family))
@@ -495,14 +483,8 @@ release-workers: check-cargo
 release-workers-dry-run: check-cargo
 	cd $(WORKERS_REPO_PATH) && bash ./installers/release-workers.sh --dry-run $(foreach family,$(RELEASE_WORKER_FAMILIES),--family $(family))
 
-release-workers-desktop: check-cargo
-	cd $(WORKERS_REPO_PATH) && bash ./installers/release-workers.sh --family desktop
-
 release-workers-rss: check-cargo
 	cd $(WORKERS_REPO_PATH) && bash ./installers/release-workers.sh --family rss
-
-release-workers-embedding: check-cargo
-	cd $(WORKERS_REPO_PATH) && bash ./installers/release-workers.sh --family embedding
 
 clean-workers-artifacts: check-cargo
 	cd $(WORKERS_REPO_PATH) && $(CARGO) clean
