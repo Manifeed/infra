@@ -1,0 +1,28 @@
+services:
+  edge_nginx:
+    networks:
+      - manifeed_internal
+
+  traefik_dev:
+    image: manifeed_traefik_dev:local
+    build:
+      context: ./traefik_dev
+      dockerfile: Dockerfile
+      provenance: false
+      sbom: false
+    container_name: manifeed_traefik_dev
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8088:8080"
+    environment:
+      TRAEFIK_DEV_HOST: ${TRAEFIK_DEV_HOST:-localhost}
+      TRAEFIK_DEV_DASHBOARD_HOST: ${TRAEFIK_DEV_DASHBOARD_HOST:-traefik.localhost}
+      TRAEFIK_DEV_CERT_DAYS: ${TRAEFIK_DEV_CERT_DAYS:-825}
+    volumes:
+      - traefik_dev_certs:/certs
+    networks:
+      - manifeed_internal
+
+volumes:
+  traefik_dev_certs:
