@@ -106,7 +106,6 @@ make test-public-api
 make test-user-service
 make test-worker-service
 make test-worker
-make test-worker-embedding
 ```
 
 ## Variables de chemins

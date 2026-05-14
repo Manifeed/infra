@@ -219,8 +219,8 @@ services:
       QDRANT_URL: ${QDRANT_URL:-http://qdrant:6333}
       QDRANT_COLLECTION_NAME: ${QDRANT_COLLECTION_NAME:-article_embeddings}
       SOURCE_EMBEDDING_DIMENSIONS: ${SOURCE_EMBEDDING_DIMENSIONS:-1024}
-      EMBEDDING_SERVICE_URL: ${EMBEDDING_SERVICE_URL:?EMBEDDING_SERVICE_URL must be set}
-      EMBEDDING_SERVICE_API_KEY: ${EMBEDDING_SERVICE_API_KEY:?EMBEDDING_SERVICE_API_KEY must be set}
+      BGE_M3_INFERENCE_URL: ${BGE_M3_INFERENCE_URL:-}
+      BGE_M3_INFERENCE_API_KEY: ${BGE_M3_INFERENCE_API_KEY:-}
       SOURCE_SEARCH_RECENCY_HALFLIFE_DAYS: ${SOURCE_SEARCH_RECENCY_HALFLIFE_DAYS:-14}
       RSS_FEEDS_REPOSITORY_PATH: ${RSS_FEEDS_REPOSITORY_PATH:-/rss_feeds}
     depends_on:
@@ -250,14 +250,14 @@ services:
       - 8.8.8.8
     restart: unless-stopped
 
-  embedding_indexer_service:
-    image: manifeed_embedding_indexer_service:local
+  indexer_service:
+    image: manifeed_indexer_service:local
     build:
-      context: ${EMBEDDING_INDEXER_SERVICE_REPO_PATH:-../embedding_indexer_service}
+      context: ${INDEXER_SERVICE_REPO_PATH:-../indexer_service}
       dockerfile: Dockerfile
       provenance: false
       sbom: false
-    container_name: manifeed_embedding_indexer_service
+    container_name: manifeed_indexer_service
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
     environment:
       CONTENT_READ_DATABASE_URL: ${CONTENT_READ_DATABASE_URL:-postgresql://${POSTGRES_USER:-manifeed}:${POSTGRES_PASSWORD:-manifeed}@postgres:5432/${CONTENT_POSTGRES_DB:-manifeed_content}}
@@ -266,9 +266,9 @@ services:
       WORKERS_WRITE_DATABASE_URL: ${WORKERS_WRITE_DATABASE_URL:-postgresql://${POSTGRES_USER:-manifeed}:${POSTGRES_PASSWORD:-manifeed}@postgres:5432/${WORKERS_POSTGRES_DB:-manifeed_workers}}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       EMBEDDING_REDIS_QUEUE: ${EMBEDDING_REDIS_QUEUE:-embedding:source_embedding}
-      EMBEDDING_SERVICE_URL: ${EMBEDDING_SERVICE_URL:?EMBEDDING_SERVICE_URL must be set}
-      EMBEDDING_SERVICE_API_KEY: ${EMBEDDING_SERVICE_API_KEY:?EMBEDDING_SERVICE_API_KEY must be set}
-      EMBEDDING_SERVICE_TIMEOUT_SECONDS: ${EMBEDDING_SERVICE_TIMEOUT_SECONDS:-300}
+      BGE_M3_INFERENCE_URL: ${BGE_M3_INFERENCE_URL:-}
+      BGE_M3_INFERENCE_API_KEY: ${BGE_M3_INFERENCE_API_KEY:-}
+      BGE_M3_INFERENCE_TIMEOUT_SECONDS: ${BGE_M3_INFERENCE_TIMEOUT_SECONDS:-300}
       QDRANT_URL: ${QDRANT_URL:-http://qdrant:6333}
       QDRANT_COLLECTION_NAME: ${QDRANT_COLLECTION_NAME:-article_embeddings}
       SOURCE_EMBEDDING_DIMENSIONS: ${SOURCE_EMBEDDING_DIMENSIONS:-1024}
@@ -289,7 +289,7 @@ services:
       timeout: 5s
       retries: 5
     volumes:
-      - ${EMBEDDING_INDEXER_SERVICE_REPO_PATH:-../embedding_indexer_service}:/app:z
+      - ${INDEXER_SERVICE_REPO_PATH:-../indexer_service}:/app:z
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks:
@@ -313,7 +313,6 @@ services:
       IDENTITY_READ_DATABASE_URL: ${IDENTITY_READ_DATABASE_URL:-postgresql://${POSTGRES_USER:-manifeed}:${POSTGRES_PASSWORD:-manifeed}@postgres:5432/${IDENTITY_POSTGRES_DB:-manifeed_identity}}
       WORKERS_READ_DATABASE_URL: ${WORKERS_READ_DATABASE_URL:-postgresql://${POSTGRES_USER:-manifeed}:${POSTGRES_PASSWORD:-manifeed}@postgres:5432/${WORKERS_POSTGRES_DB:-manifeed_workers}}
       WORKERS_WRITE_DATABASE_URL: ${WORKERS_WRITE_DATABASE_URL:-postgresql://${POSTGRES_USER:-manifeed}:${POSTGRES_PASSWORD:-manifeed}@postgres:5432/${WORKERS_POSTGRES_DB:-manifeed_workers}}
-      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-https://localhost}
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-}
       QDRANT_URL: ${QDRANT_URL:-http://qdrant:6333}
       QDRANT_COLLECTION_NAME: ${QDRANT_COLLECTION_NAME:-article_embeddings}
@@ -321,7 +320,6 @@ services:
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       EMBEDDING_REDIS_QUEUE: ${EMBEDDING_REDIS_QUEUE:-embedding:source_embedding}
       SOURCE_EMBEDDING_BATCH_SIZE: ${SOURCE_EMBEDDING_BATCH_SIZE:-128}
-      RSS_WORKER_VERSION: ${RSS_WORKER_VERSION:-0.1.4}
       RSS_WORKER_GITHUB_REPOSITORY: ${RSS_WORKER_GITHUB_REPOSITORY:-Manifeed/workers}
     depends_on:
       postgres:
