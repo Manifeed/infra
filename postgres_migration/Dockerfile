@@ -11,8 +11,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 COPY requirements.txt ./
 RUN pip install --no-cache-dir --timeout 120 --retries 10 -r requirements.txt
 
-COPY alembic.ini ./
 COPY alembic ./alembic
+COPY alembic_content.ini ./alembic_content.ini
+COPY alembic_identity.ini ./alembic_identity.ini
+COPY alembic_workers.ini ./alembic_workers.ini
 COPY migrate_all.py ./
 
 CMD ["python", "migrate_all.py"]

@@ -9,23 +9,22 @@ from sqlalchemy.engine import make_url
 
 
 TARGETS = (
-    ("content", "CONTENT_DATABASE_URL"),
-    ("identity", "IDENTITY_DATABASE_URL"),
-    ("workers", "WORKERS_DATABASE_URL"),
+    ("content", "CONTENT_DATABASE_URL", "alembic_content.ini"),
+    ("identity", "IDENTITY_DATABASE_URL", "alembic_identity.ini"),
+    ("workers", "WORKERS_DATABASE_URL", "alembic_workers.ini"),
 )
 
 
 def main() -> None:
-    for target, env_name in TARGETS:
+    for _, env_name, config_file in TARGETS:
         database_url = _require_env(env_name)
         _ensure_database(database_url)
         env = {
             **os.environ,
             "DATABASE_URL": database_url,
-            "MIGRATION_TARGET": target,
         }
         subprocess.run(
-            ["alembic", "-c", "alembic.ini", "upgrade", "head"],
+            ["alembic", "-c", config_file, "upgrade", "head"],
             check=True,
             env=env,
         )

@@ -1,24 +1,27 @@
-# Nginx edge
+# Nginx Edge
 
-Tout ce qui concerne l'edge Nginx interne vit ici. En production, le flux attendu est :
+Everything related to the internal Nginx edge layer lives here.
 
-`Client -> Traefik HTTPS/domain -> nginx HTTP interne -> public_api -> services internes`
+Expected production-style flow:
 
-Traefik termine TLS, force HTTPS, choisit le domaine et nettoie/pose les headers
-`X-Forwarded-*`. Le compose principal ne publie plus nginx sur un port hote :
-Traefik doit joindre `edge_nginx:80` via le reseau Docker externe
+`Client -> Traefik HTTPS/domain -> nginx internal HTTP -> public_api -> internal services`
+
+Traefik owns TLS termination, HTTPS redirects, domain routing, and
+normalization of `X-Forwarded-*` headers. `edge_nginx` is not exposed directly
+on a host port in the default stack. Traefik is expected to reach
+`edge_nginx:80` through the external Docker network
 `${TRAEFIK_NETWORK_NAME:-traefik_proxy}`.
 
-En dev, `infra/docker-compose.dev.yml` lance un Traefik local qui genere un
-certificat autosigne pour `${TRAEFIK_DEV_HOST:-localhost}` et route ce host vers
-`edge_nginx`.
+In local development, `infra/docker-compose.dev.yml` starts a dedicated
+Traefik instance that generates a self-signed certificate for
+`${TRAEFIK_DEV_HOST:-localhost}` and routes that hostname to `edge_nginx`.
 
-- `nginx.conf` : point d'entree principal charge par le conteneur
-- `conf.d/edge.conf` : routage edge, rate limiting, headers et proxy vers backend/frontend
-- `snippets/` : blocs reutilisables pour les pages d'erreur et autres directives partagees
-- `errors/` : page d'erreur SSI et assets statiques associes
+- `nginx.conf`: main container entrypoint
+- `conf.d/edge.conf`: routing, rate limits, security headers, and proxy rules
+- `snippets/`: reusable shared directives
+- `errors/`: SSI error page and static assets
 
-Montages Docker utilises par `docker-compose.yml` :
+Docker mounts used by `docker-compose.yml`:
 
 - `./nginx/nginx.conf` -> `/etc/nginx/nginx.conf`
 - `./nginx/conf.d` -> `/etc/nginx/conf.d`

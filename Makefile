@@ -6,13 +6,17 @@ CARGO ?= $(shell if command -v cargo >/dev/null 2>&1; then command -v cargo; eli
 
 SERVICE ?=
 SERVICES ?=
+PUBLIC_API_REPO_PATH ?= ../public_api
+SHARED_BACKEND_REPO_PATH ?= ../shared_backend
 ADMIN_SERVICE_REPO_PATH ?= ../admin_service
 AUTH_SERVICE_REPO_PATH ?= ../auth_service
 CONTENT_SERVICE_REPO_PATH ?= ../content_service
+INDEXER_SERVICE_REPO_PATH ?= ../indexer_service
 FRONTEND_REPO_PATH ?= ../frontend
 USER_SERVICE_REPO_PATH ?= ../user_service
 WORKER_SERVICE_REPO_PATH ?= ../worker_service
 WORKERS_REPO_PATH ?= ../workers
+TRAEFIK_NETWORK_NAME ?= traefik_proxy
 SERVICE_PYTEST_ARGS ?= tests -vv --color=yes --tb=short -ra
 WORKER_CARGO_TEST_ARGS ?=
 RUST_LINUX_X86_TARGET := x86_64-unknown-linux-gnu
@@ -23,6 +27,7 @@ DB_RESTORE_FILE ?= $(SQL_FILE)
 DB_MIGRATION_SERVICE ?= db_migrations
 QDRANT_BACKUP_DIR ?= ./backups/qdrant
 QDRANT_SNAPSHOT_FILE ?=
+QDRANT_CURL_IMAGE ?= curlimages/curl:8.8.0
 
 CORE_INFRA_SERVICES := postgres redis qdrant
 BACKEND_APPLICATION_SERVICES := auth_service user_service admin_service content_service indexer_service worker_service public_api
@@ -31,7 +36,7 @@ BUILDABLE_APPLICATION_SERVICES := public_api auth_service user_service admin_ser
 BUILDABLE_SERVICES := $(DB_MIGRATION_SERVICE) $(BUILDABLE_APPLICATION_SERVICES)
 RESETTABLE_APPLICATION_SERVICES := edge_nginx frontend_admin public_api auth_service user_service admin_service content_service indexer_service worker_service
 
-.PHONY: help dev-up dev-down dev-logs up build build-all build-missing build-db-migrations build-public-api build-auth-service build-user-service build-admin-service build-content-service build-indexer-service build-worker-service build-frontend-admin build-traefik-dev down restart logs clean clean-all docker-prune-all db-migrate db-reset db-backup db-recreate-from-sql db-restore qdrant-backup qdrant-reset qdrant-restore test-services test-public-api test-admin-service test-content-service test-auth-service test-user-service test-worker-service test-worker test-crawler-rss build-crawler-rss-native run-crawler-rss-native check-worker-quality check-cargo clean-workers-artifacts
+.PHONY: help ensure-traefik-network wait-for-postgres dev-up dev-down dev-logs up build build-all build-missing build-db-migrations build-public-api build-auth-service build-user-service build-admin-service build-content-service build-indexer-service build-worker-service build-frontend-admin build-traefik-dev down restart logs clean clean-all docker-prune-all db-migrate db-reset db-backup db-recreate-from-sql db-restore qdrant-backup qdrant-reset qdrant-restore test-services test-public-api test-admin-service test-content-service test-auth-service test-user-service test-worker-service test-worker test-crawler-rss build-crawler-rss-native run-crawler-rss-native check-worker-quality check-cargo clean-workers-artifacts
 
 help:
 	@printf '%s\n' 'Available targets:'
@@ -80,6 +85,21 @@ help:
 	@printf '%s\n' '  - missing local images are built automatically once, then reused.'
 	@printf '%s\n' '  - make build rebuilds all buildable images, or only SERVICE=name when provided.'
 
+ensure-traefik-network:
+	@docker network inspect "$(TRAEFIK_NETWORK_NAME)" >/dev/null 2>&1 || docker network create "$(TRAEFIK_NETWORK_NAME)" >/dev/null
+
+wait-for-postgres:
+	@printf '%s\n' 'Waiting for postgres to accept connections...'
+	@attempt=0; \
+	until $(DC) exec -T postgres sh -lc 'pg_isready -U "$${POSTGRES_USER:-manifeed}" -d "$${POSTGRES_ADMIN_DATABASE:-postgres}" >/dev/null'; do \
+		attempt=$$((attempt + 1)); \
+		if [ $$attempt -ge 30 ]; then \
+			echo "Postgres did not become ready in time."; \
+			exit 1; \
+		fi; \
+		sleep 2; \
+	done
+
 dev-up:
 	@if [ -n "$(SERVICES)" ]; then \
 		echo "Use SERVICE=name with 'make dev-up', not SERVICES=\"...\"."; \
@@ -95,14 +115,17 @@ dev-up:
 				;; \
 			$(DB_MIGRATION_SERVICE)) \
 				$(DC_DEV) up -d traefik_dev $(CORE_INFRA_SERVICES); \
+				$(MAKE) wait-for-postgres; \
 				$(MAKE) build-missing SERVICE=$(DB_MIGRATION_SERVICE); \
 				$(DC_DEV) run --rm --no-deps $(DB_MIGRATION_SERVICE); \
 				;; \
 			auth_service|user_service|admin_service|content_service|indexer_service|worker_service|public_api|frontend_admin|edge_nginx) \
 				$(DC_DEV) up -d traefik_dev $(CORE_INFRA_SERVICES); \
+				$(MAKE) wait-for-postgres; \
 				$(MAKE) build-missing SERVICE=$(DB_MIGRATION_SERVICE); \
 				$(DC_DEV) run --rm --no-deps $(DB_MIGRATION_SERVICE); \
 				$(MAKE) build-missing SERVICES="$(BUILDABLE_APPLICATION_SERVICES)"; \
+				$(MAKE) ensure-traefik-network; \
 				$(DC_DEV) up -d $(SERVICE); \
 				;; \
 			*) \
@@ -113,9 +136,11 @@ dev-up:
 		esac; \
 	else \
 		$(DC_DEV) up -d traefik_dev $(CORE_INFRA_SERVICES); \
+		$(MAKE) wait-for-postgres; \
 		$(MAKE) build-missing SERVICE=$(DB_MIGRATION_SERVICE); \
 		$(DC_DEV) run --rm --no-deps $(DB_MIGRATION_SERVICE); \
 		$(MAKE) build-missing SERVICES="$(BUILDABLE_APPLICATION_SERVICES)"; \
+		$(MAKE) ensure-traefik-network; \
 		$(DC_DEV) up -d $(APPLICATION_SERVICES); \
 	fi
 
@@ -131,14 +156,17 @@ up:
 				;; \
 			$(DB_MIGRATION_SERVICE)) \
 				$(DC) up -d $(CORE_INFRA_SERVICES); \
+				$(MAKE) wait-for-postgres; \
 				$(MAKE) build-missing SERVICE=$(DB_MIGRATION_SERVICE); \
 				$(DC) run --rm --no-deps $(DB_MIGRATION_SERVICE); \
 				;; \
 			auth_service|user_service|admin_service|content_service|indexer_service|worker_service|public_api|frontend_admin|edge_nginx) \
 				$(DC) up -d $(CORE_INFRA_SERVICES); \
+				$(MAKE) wait-for-postgres; \
 				$(MAKE) build-missing SERVICE=$(DB_MIGRATION_SERVICE); \
 				$(DC) run --rm --no-deps $(DB_MIGRATION_SERVICE); \
 				$(MAKE) build-missing SERVICES="$(BUILDABLE_APPLICATION_SERVICES)"; \
+				$(MAKE) ensure-traefik-network; \
 				$(DC) up -d $(SERVICE); \
 				;; \
 			*) \
@@ -149,9 +177,11 @@ up:
 		esac; \
 	else \
 		$(DC) up -d $(CORE_INFRA_SERVICES); \
+		$(MAKE) wait-for-postgres; \
 		$(MAKE) build-missing SERVICE=$(DB_MIGRATION_SERVICE); \
 		$(DC) run --rm --no-deps $(DB_MIGRATION_SERVICE); \
 		$(MAKE) build-missing SERVICES="$(BUILDABLE_APPLICATION_SERVICES)"; \
+		$(MAKE) ensure-traefik-network; \
 		$(DC) up -d $(APPLICATION_SERVICES); \
 	fi
 
@@ -287,17 +317,20 @@ clean-all:
 
 db-migrate:
 	$(DC) up -d $(CORE_INFRA_SERVICES)
+	$(MAKE) wait-for-postgres
 	$(MAKE) build-missing SERVICE=$(DB_MIGRATION_SERVICE)
 	$(DC) run --rm --no-deps $(DB_MIGRATION_SERVICE)
 
 db-reset:
 	$(DC) up -d $(CORE_INFRA_SERVICES)
+	$(MAKE) wait-for-postgres
 	$(DC) stop $(RESETTABLE_APPLICATION_SERVICES) || true
-	$(DC) exec -T postgres sh -lc 'set -e; admin_db="$${POSTGRES_DB:-manifeed_content}"; for db in "$${CONTENT_POSTGRES_DB:-manifeed_content}" "$${IDENTITY_POSTGRES_DB:-manifeed_identity}" "$${WORKERS_POSTGRES_DB:-manifeed_workers}"; do psql -v ON_ERROR_STOP=1 -U "$${POSTGRES_USER:-manifeed}" -d "$$admin_db" -c "DROP DATABASE IF EXISTS \"$$db\" WITH (FORCE);"; psql -v ON_ERROR_STOP=1 -U "$${POSTGRES_USER:-manifeed}" -d "$$admin_db" -c "CREATE DATABASE \"$$db\";"; done'
+	$(DC) exec -T postgres sh -lc 'set -e; admin_db="$${POSTGRES_ADMIN_DATABASE:-postgres}"; for db in "$${CONTENT_POSTGRES_DB:-manifeed_content}" "$${IDENTITY_POSTGRES_DB:-manifeed_identity}" "$${WORKERS_POSTGRES_DB:-manifeed_workers}"; do psql -v ON_ERROR_STOP=1 -U "$${POSTGRES_USER:-manifeed}" -d "$$admin_db" -c "DROP DATABASE IF EXISTS \"$$db\" WITH (FORCE);"; psql -v ON_ERROR_STOP=1 -U "$${POSTGRES_USER:-manifeed}" -d "$$admin_db" -c "CREATE DATABASE \"$$db\";"; done'
 	$(MAKE) build-missing SERVICE=$(DB_MIGRATION_SERVICE)
 	$(DC) run --rm --no-deps $(DB_MIGRATION_SERVICE)
 	$(MAKE) qdrant-reset
 	$(MAKE) build-missing SERVICES="$(BUILDABLE_APPLICATION_SERVICES)"
+	$(MAKE) ensure-traefik-network
 	$(DC) up -d $(APPLICATION_SERVICES)
 
 db-backup:
@@ -306,6 +339,7 @@ db-backup:
 	trap 'rm -rf "$$tmp_dir"' EXIT; \
 	mkdir -p "$$(dirname "$$backup_file")"; \
 	$(DC) up -d postgres; \
+	$(MAKE) wait-for-postgres; \
 	for db_spec in content:"$${CONTENT_POSTGRES_DB:-manifeed_content}" identity:"$${IDENTITY_POSTGRES_DB:-manifeed_identity}" workers:"$${WORKERS_POSTGRES_DB:-manifeed_workers}"; do \
 		label=$${db_spec%%:*}; \
 		db_name=$${db_spec#*:}; \
@@ -333,12 +367,14 @@ db-recreate-from-sql:
 		fi; \
 	done; \
 	$(DC) up -d $(CORE_INFRA_SERVICES); \
+	$(MAKE) wait-for-postgres; \
 	$(DC) stop $(RESETTABLE_APPLICATION_SERVICES) || true; \
-	$(DC) exec -T postgres sh -lc 'set -e; admin_db="$${POSTGRES_DB:-manifeed_content}"; for db in "$${CONTENT_POSTGRES_DB:-manifeed_content}" "$${IDENTITY_POSTGRES_DB:-manifeed_identity}" "$${WORKERS_POSTGRES_DB:-manifeed_workers}"; do psql -v ON_ERROR_STOP=1 -U "$${POSTGRES_USER:-manifeed}" -d "$$admin_db" -c "DROP DATABASE IF EXISTS \"$$db\" WITH (FORCE);"; psql -v ON_ERROR_STOP=1 -U "$${POSTGRES_USER:-manifeed}" -d "$$admin_db" -c "CREATE DATABASE \"$$db\";"; done'; \
+	$(DC) exec -T postgres sh -lc 'set -e; admin_db="$${POSTGRES_ADMIN_DATABASE:-postgres}"; for db in "$${CONTENT_POSTGRES_DB:-manifeed_content}" "$${IDENTITY_POSTGRES_DB:-manifeed_identity}" "$${WORKERS_POSTGRES_DB:-manifeed_workers}"; do psql -v ON_ERROR_STOP=1 -U "$${POSTGRES_USER:-manifeed}" -d "$$admin_db" -c "DROP DATABASE IF EXISTS \"$$db\" WITH (FORCE);"; psql -v ON_ERROR_STOP=1 -U "$${POSTGRES_USER:-manifeed}" -d "$$admin_db" -c "CREATE DATABASE \"$$db\";"; done'; \
 	$(DC) exec -T postgres sh -lc 'psql -v ON_ERROR_STOP=1 -U "$${POSTGRES_USER:-manifeed}" -d "$${CONTENT_POSTGRES_DB:-manifeed_content}"' < "$$tmp_dir/content.sql"; \
 	$(DC) exec -T postgres sh -lc 'psql -v ON_ERROR_STOP=1 -U "$${POSTGRES_USER:-manifeed}" -d "$${IDENTITY_POSTGRES_DB:-manifeed_identity}"' < "$$tmp_dir/identity.sql"; \
 	$(DC) exec -T postgres sh -lc 'psql -v ON_ERROR_STOP=1 -U "$${POSTGRES_USER:-manifeed}" -d "$${WORKERS_POSTGRES_DB:-manifeed_workers}"' < "$$tmp_dir/workers.sql"; \
 	$(MAKE) build-missing SERVICES="$(BUILDABLE_APPLICATION_SERVICES)"; \
+	$(MAKE) ensure-traefik-network; \
 	$(DC) up -d $(APPLICATION_SERVICES); \
 	printf 'Database bundle restored from %s\n' "$(DB_RESTORE_FILE)"
 
@@ -347,17 +383,19 @@ db-restore: db-recreate-from-sql
 qdrant-backup:
 	@set -e; \
 	if [ -f .env ]; then set -a; . ./.env; set +a; fi; \
-	port="$${QDRANT_PORT:-6333}"; \
 	coll="$${QDRANT_COLLECTION_NAME:-article_embeddings}"; \
 	backup_dir="$(QDRANT_BACKUP_DIR)"; \
 	mkdir -p "$$backup_dir"; \
 	$(DC) up -d qdrant; \
+	$(MAKE) wait-for-postgres >/dev/null 2>&1 || true; \
 	sleep 2; \
-	base_url="http://127.0.0.1:$$port"; \
+	container_id=$$($(DC) ps -q qdrant); \
+	network_name=$$(docker inspect -f '{{range $$k, $$v := .NetworkSettings.Networks}}{{println $$k}}{{end}}' "$$container_id" | head -n1); \
+	base_url="http://qdrant:6333"; \
 	if [ -n "$$QDRANT_API_KEY" ]; then \
-		coll_http=$$(curl -sS -o /dev/null -w '%{http_code}' -H "api-key: $$QDRANT_API_KEY" "$$base_url/collections/$$coll"); \
+		coll_http=$$(docker run --rm --network "$$network_name" $(QDRANT_CURL_IMAGE) -sS -o /dev/null -w '%{http_code}' -H "api-key: $$QDRANT_API_KEY" "$$base_url/collections/$$coll"); \
 	else \
-		coll_http=$$(curl -sS -o /dev/null -w '%{http_code}' "$$base_url/collections/$$coll"); \
+		coll_http=$$(docker run --rm --network "$$network_name" $(QDRANT_CURL_IMAGE) -sS -o /dev/null -w '%{http_code}' "$$base_url/collections/$$coll"); \
 	fi; \
 	if [ "$$coll_http" = "404" ]; then \
 		printf 'qdrant-backup skipped: collection "%s" does not exist yet (POST /snapshots returns 404). Index at least one embedding or fix QDRANT_COLLECTION_NAME.\n' "$$coll"; \
@@ -368,32 +406,34 @@ qdrant-backup:
 		exit 1; \
 	fi; \
 	if [ -n "$$QDRANT_API_KEY" ]; then \
-		create_json=$$(curl -sS -f -X POST "$$base_url/collections/$$coll/snapshots?wait=true" -H "api-key: $$QDRANT_API_KEY"); \
+		create_json=$$(docker run --rm --network "$$network_name" $(QDRANT_CURL_IMAGE) -sS -f -X POST "$$base_url/collections/$$coll/snapshots?wait=true" -H "api-key: $$QDRANT_API_KEY"); \
 	else \
-		create_json=$$(curl -sS -f -X POST "$$base_url/collections/$$coll/snapshots?wait=true"); \
+		create_json=$$(docker run --rm --network "$$network_name" $(QDRANT_CURL_IMAGE) -sS -f -X POST "$$base_url/collections/$$coll/snapshots?wait=true"); \
 	fi; \
 	snap_name=$$(printf '%s' "$$create_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["result"]["name"])'); \
 	ts=$$(date +%Y%m%d_%H%M%S); \
 	out_file="$$backup_dir/$${coll}_$${ts}_$${snap_name}"; \
 	if [ -n "$$QDRANT_API_KEY" ]; then \
-		curl -sS -f -o "$$out_file" "$$base_url/collections/$$coll/snapshots/$$snap_name" -H "api-key: $$QDRANT_API_KEY"; \
+		docker run --rm --network "$$network_name" $(QDRANT_CURL_IMAGE) -sS -f "$$base_url/collections/$$coll/snapshots/$$snap_name" -H "api-key: $$QDRANT_API_KEY" > "$$out_file"; \
 	else \
-		curl -sS -f -o "$$out_file" "$$base_url/collections/$$coll/snapshots/$$snap_name"; \
+		docker run --rm --network "$$network_name" $(QDRANT_CURL_IMAGE) -sS -f "$$base_url/collections/$$coll/snapshots/$$snap_name" > "$$out_file"; \
 	fi; \
 	printf 'Qdrant snapshot written to %s\n' "$$out_file"
 
 qdrant-reset:
 	@set -e; \
 	if [ -f .env ]; then set -a; . ./.env; set +a; fi; \
-	port="$${QDRANT_PORT:-6333}"; \
 	coll="$${QDRANT_COLLECTION_NAME:-article_embeddings}"; \
 	$(DC) up -d qdrant; \
+	$(MAKE) wait-for-postgres >/dev/null 2>&1 || true; \
 	sleep 2; \
-	base_url="http://127.0.0.1:$$port"; \
+	container_id=$$($(DC) ps -q qdrant); \
+	network_name=$$(docker inspect -f '{{range $$k, $$v := .NetworkSettings.Networks}}{{println $$k}}{{end}}' "$$container_id" | head -n1); \
+	base_url="http://qdrant:6333"; \
 	if [ -n "$$QDRANT_API_KEY" ]; then \
-		http=$$(curl -sS -o /dev/null -w '%{http_code}' -X DELETE "$$base_url/collections/$$coll" -H "api-key: $$QDRANT_API_KEY"); \
+		http=$$(docker run --rm --network "$$network_name" $(QDRANT_CURL_IMAGE) -sS -o /dev/null -w '%{http_code}' -X DELETE "$$base_url/collections/$$coll" -H "api-key: $$QDRANT_API_KEY"); \
 	else \
-		http=$$(curl -sS -o /dev/null -w '%{http_code}' -X DELETE "$$base_url/collections/$$coll"); \
+		http=$$(docker run --rm --network "$$network_name" $(QDRANT_CURL_IMAGE) -sS -o /dev/null -w '%{http_code}' -X DELETE "$$base_url/collections/$$coll"); \
 	fi; \
 	if [ "$$http" != "200" ] && [ "$$http" != "202" ] && [ "$$http" != "404" ]; then \
 		printf 'qdrant-reset failed: DELETE %s/collections/%s returned HTTP %s\n' "$$base_url" "$$coll" "$$http"; \
@@ -412,22 +452,28 @@ qdrant-restore:
 	fi
 	@set -e; \
 	if [ -f .env ]; then set -a; . ./.env; set +a; fi; \
-	port="$${QDRANT_PORT:-6333}"; \
 	coll="$${QDRANT_COLLECTION_NAME:-article_embeddings}"; \
-	base_url="http://127.0.0.1:$$port"; \
 	snapfile="$(QDRANT_SNAPSHOT_FILE)"; \
 	$(DC) stop $(RESETTABLE_APPLICATION_SERVICES) || true; \
 	$(DC) up -d qdrant; \
+	$(MAKE) wait-for-postgres >/dev/null 2>&1 || true; \
 	sleep 2; \
+	container_id=$$($(DC) ps -q qdrant); \
+	network_name=$$(docker inspect -f '{{range $$k, $$v := .NetworkSettings.Networks}}{{println $$k}}{{end}}' "$$container_id" | head -n1); \
+	base_url="http://qdrant:6333"; \
+	snap_dir=$$(cd "$$(dirname "$$snapfile")" && pwd); \
+	snap_name=$$(basename "$$snapfile"); \
 	if [ -n "$$QDRANT_API_KEY" ]; then \
-		curl -sS -f --connect-timeout 10 --max-time 3600 \
+		docker run --rm --network "$$network_name" -v "$$snap_dir:/data:ro" $(QDRANT_CURL_IMAGE) \
+			-sS -f --connect-timeout 10 --max-time 3600 \
 			-X POST "$$base_url/collections/$$coll/snapshots/upload?wait=true&priority=snapshot" \
 			-H "api-key: $$QDRANT_API_KEY" \
-			-F "snapshot=@$$snapfile"; \
+			-F "snapshot=@/data/$$snap_name"; \
 	else \
-		curl -sS -f --connect-timeout 10 --max-time 3600 \
+		docker run --rm --network "$$network_name" -v "$$snap_dir:/data:ro" $(QDRANT_CURL_IMAGE) \
+			-sS -f --connect-timeout 10 --max-time 3600 \
 			-X POST "$$base_url/collections/$$coll/snapshots/upload?wait=true&priority=snapshot" \
-			-F "snapshot=@$$snapfile"; \
+			-F "snapshot=@/data/$$snap_name"; \
 	fi; \
 	$(MAKE) build-missing SERVICES="$(BUILDABLE_APPLICATION_SERVICES)"; \
 	$(DC) up -d $(APPLICATION_SERVICES); \

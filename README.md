@@ -1,21 +1,22 @@
 # Manifeed Infra
 
-Repo d'orchestration locale du split multi-repo Manifeed.
+Local orchestration repo for the Manifeed multi-repo stack.
 
-## Arborescence attendue
+## Expected Workspace Layout
 
 ```text
 Manifeed_multiRepo/
-├── auth_service/
 ├── admin_service/
+├── auth_service/
 ├── content_service/
-├── docs/
 ├── frontend/
+├── indexer_service/
 ├── infra/
-│   ├── postgres_migration/
 │   ├── backups/
 │   ├── nginx/
+│   ├── postgres_migration/
 │   ├── docker-compose.yml
+│   ├── docker-compose.dev.yml
 │   └── Makefile
 ├── public_api/
 ├── shared_backend/
@@ -24,9 +25,10 @@ Manifeed_multiRepo/
 └── workers/
 ```
 
-Le catalogue RSS reste un depot externe et peut etre monte via `RSS_FEEDS_HOST_PATH`.
+The RSS catalog remains an external repository and can be mounted through
+`RSS_FEEDS_HOST_PATH`.
 
-## Demarrage rapide
+## Quick Start
 
 ```bash
 cp .env.example .env
@@ -34,160 +36,163 @@ make help
 make up
 ```
 
-Pour demarrer la stack complete en mode dev avec Traefik local et certificat
-autosigne pour `https://localhost`, utilisez :
+For the full local developer stack with Traefik and a self-signed certificate
+for `https://localhost`:
 
 ```bash
 cp .env.example .env
 make dev-up
 ```
 
-Le premier lancement construit l'image `manifeed_traefik_dev:local`, cree le
-certificat local puis expose l'application sur :
+The first run builds `manifeed_traefik_dev:local`, creates the local
+certificate, and exposes:
 
 - `https://localhost`
-- `http://localhost` -> redirige vers HTTPS
-- `https://traefik.localhost` pour le dashboard Traefik
+- `http://localhost` redirected to HTTPS
+- `https://traefik.localhost` for the Traefik dashboard
 
-Le certificat est genere automatiquement dans un volume Docker local. Le
-navigateur affichera un avertissement normal de certificat autosigne lors de la
-premiere visite.
+## What `make up` Does
 
-`make up` lance `postgres`, `redis` et `qdrant`, applique les migrations Alembic via
-`db_migrations`, puis demarre `auth_service`, `user_service`, `admin_service`,
-`content_service`, `worker_service`, `public_api`, le frontend et l'edge Nginx.
+`make up` starts `postgres`, `redis`, and `qdrant`, runs the one-shot
+`db_migrations` service, then starts `auth_service`, `user_service`,
+`admin_service`, `content_service`, `indexer_service`, `worker_service`,
+`public_api`, `frontend_admin`, and `edge_nginx`.
 
-Le `up` ne force plus de rebuild Docker. Il ne construit une image locale que si
-elle n'existe pas encore. Pour reconstruire explicitement une image, utilisez
-`make build SERVICE=<service>` ou une cible `build-*`.
+`make up` does not force Docker rebuilds anymore. Missing local images are
+built once and then reused. Use `make build SERVICE=<service>` or one of the
+`build-*` targets when you want a fresh rebuild.
 
-Tous les services backend buildent maintenant depuis la racine du monorepo et
-embarquent `shared_backend` via une wheel locale construite pendant le build
-Docker.
+## Networking
 
-Le trafic edge ne doit etre pris qu'une fois `public_api` declare `healthy`, ce
-qui repose maintenant sur `GET /internal/ready` et son code HTTP `200` quand
-la gateway est reellement prete.
+- Stateful services are internal-only by default. `postgres`, `redis`, and
+  `qdrant` do not publish host ports in the main compose file.
+- `edge_nginx` is internal-only as well. Production-style ingress is expected
+  to come from Traefik through the external Docker network
+  `${TRAEFIK_NETWORK_NAME:-traefik_proxy}`.
+- `docker-compose.dev.yml` adds a local Traefik entrypoint on ports `80`,
+  `443`, and `8088`.
 
-Services exposes par defaut :
+Expected public traffic flow:
 
-- aucun service stateful n'est publie sur l'hote par le compose principal
-- edge Nginx n'est pas publie sur l'hote; Traefik le joint via le reseau Docker externe `${TRAEFIK_NETWORK_NAME:-traefik_proxy}`
-- le compose dev `docker-compose.dev.yml` publie Traefik sur `80`, `443` et son dashboard sur `8088`
+`Client -> Traefik HTTPS/domain -> nginx internal HTTP -> public_api -> internal services`
 
-Pour le developpement local direct, utilisez un override compose explicite pour
-publier nginx, Postgres, Redis ou Qdrant sur `127.0.0.1`.
-
-## Commandes utiles
+## Useful Commands
 
 ```bash
 make logs
 make dev-logs
 make build
-make build-traefik-dev
 make build SERVICE=public_api
-make build-public-api
-make build-auth-service
-make build-user-service
-make build-admin-service
-make build-content-service
-make build-worker-service
-make build-frontend-admin
+make build-traefik-dev
 make up SERVICE=admin_service
-make dev-up SERVICE=edge_nginx
 make up SERVICE=public_api
 make up SERVICE=db_migrations
-make dev-down
+make dev-up SERVICE=edge_nginx
 make db-migrate
+make db-reset
 make db-backup
 make db-recreate-from-sql DB_RESTORE_FILE=./backups/manifeed_dump.tar.gz
+make qdrant-backup
+make qdrant-reset
+make qdrant-restore QDRANT_SNAPSHOT_FILE=./backups/qdrant/your.snapshot
 make test-services
 make test-public-api
+make test-auth-service
 make test-user-service
+make test-admin-service
+make test-content-service
 make test-worker-service
 make test-worker
 ```
 
-## Variables de chemins
+## Repository and Path Variables
 
-- `MANIFEED_MULTI_REPO_PATH`
+- `PUBLIC_API_REPO_PATH`
+- `SHARED_BACKEND_REPO_PATH`
 - `ADMIN_SERVICE_REPO_PATH`
 - `AUTH_SERVICE_REPO_PATH`
 - `CONTENT_SERVICE_REPO_PATH`
+- `INDEXER_SERVICE_REPO_PATH`
 - `FRONTEND_REPO_PATH`
 - `USER_SERVICE_REPO_PATH`
 - `WORKER_SERVICE_REPO_PATH`
 - `WORKERS_REPO_PATH`
 - `RSS_FEEDS_HOST_PATH`
-- `SOURCE_SEARCH_MODEL_HOST_PATH`
-
-`SOURCE_SEARCH_MODEL_HOST_PATH` doit pointer vers un dossier hote contenant les
-artefacts du modele de recherche (`model.onnx`, `tokenizer.json`,
-`config.json`). Ce dossier est monte en lecture seule dans `content_service` au
-chemin `SOURCE_SEARCH_MODEL_DIR` (par defaut `/models/source-search`).
-
-`MANIFEED_MULTI_REPO_PATH` pointe vers la racine du monorepo pour les builds
-backend. Les autres variables restent utiles pour les montages de code source
-en local.
+- `RSS_FEEDS_REPOSITORY_PATH`
 
 ## Edge Nginx
 
-La configuration Nginx locale est centralisee dans `infra/nginx/` :
+The local Nginx edge configuration lives in `infra/nginx/`:
 
-- `nginx/nginx.conf` : point d'entree principal du conteneur
-- `nginx/conf.d/edge.conf` : routage edge, headers de securite, rate limiting et proxy
-- `nginx/snippets/` : directives partagees
-- `nginx/errors/` : page d'erreur HTML et assets associes
+- `nginx/nginx.conf`: container entrypoint config
+- `nginx/conf.d/edge.conf`: routing, security headers, rate limiting, and proxy rules
+- `nginx/snippets/`: shared directives
+- `nginx/errors/`: HTML error pages and static assets
 
-Contrat edge actuel :
+Current edge contract:
 
 - `/api/*` -> `public_api`
-- `/install` -> `public_api` (script d'installation `crawler_rss`)
+- `/install` -> `public_api`
 - `/workers/api/*` -> `worker_service`
-- `/` et `/_next/*` -> `frontend_admin`
+- `/` and `/_next/*` -> `frontend_admin`
 
-Apres modification de `nginx/conf.d/edge.conf`, recharge Nginx :
-`docker compose exec edge_nginx nginx -s reload` (ou recree le service `edge_nginx`).
+After editing `nginx/conf.d/edge.conf`, reload Nginx with:
 
-Flux public attendu :
+```bash
+docker compose exec edge_nginx nginx -s reload
+```
 
-`Client -> Traefik HTTPS/domain -> nginx HTTP interne -> public_api -> services internes`
+## PostgreSQL Migrations
 
-En mode dev, `docker-compose.dev.yml` ajoute un Traefik local qui route
-`localhost`, `127.0.0.1` et `TRAEFIK_DEV_HOST` vers `edge_nginx` avec un
-certificat autosigne genere au demarrage du conteneur, sur le reseau interne du compose.
+All PostgreSQL migration assets live in `infra/postgres_migration/`.
 
-## Base de donnees et migrations
+The migration service now runs three independent Alembic histories:
 
-L'infra porte les operations de maintenance PostgreSQL :
+- `alembic_content.ini` -> `alembic/versions/content/1_0_baseline.py`
+- `alembic_identity.ini` -> `alembic/versions/identity/1_0_baseline.py`
+- `alembic_workers.ini` -> `alembic/versions/workers/1_0_baseline.py`
 
-- les fichiers de migration vivent dans `infra/postgres_migration/`
-- `make db-migrate` applique ces revisions via le service `db_migrations`
-- `make db-reset` recree les bases `content`, `identity` et `workers`, puis reapplique les migrations
-- `make db-backup` et `make db-restore` manipulent directement PostgreSQL depuis `infra`
+This keeps `content`, `identity`, and `workers` fully separated while still
+using the same `db_migrations` container.
 
-## Sauvegarde et restauration SQL
+Useful database targets:
 
-Sauvegarde des trois bases PostgreSQL dans une archive `tar.gz` :
+- `make db-migrate`: create missing databases and apply all three baselines
+- `make db-reset`: recreate `content`, `identity`, and `workers`, then apply migrations
+- `make db-backup`: export all three PostgreSQL databases into one `tar.gz`
+- `make db-restore`: recreate and restore the bundled SQL dumps
+
+## SQL Backup and Restore
+
+Create a bundled backup:
 
 ```bash
 make db-backup
 ```
 
-Chemin personnalise :
+Use a custom output path:
 
 ```bash
 make db-backup DB_BACKUP_FILE=./backups/preprod_20260319.tar.gz
 ```
 
-Restauration complete des bases `content`, `identity` et `workers` depuis une archive :
+Restore the full bundle:
 
 ```bash
 make db-recreate-from-sql DB_RESTORE_FILE=./backups/preprod_20260319.tar.gz
 ```
 
-Alias equivalent :
+Alias:
 
 ```bash
 make db-restore DB_RESTORE_FILE=./backups/preprod_20260319.tar.gz
 ```
+
+## Qdrant Backup and Restore
+
+Qdrant maintenance commands use the internal Docker network instead of host
+port publishing, so the default stack stays private.
+
+- `make qdrant-backup`
+- `make qdrant-reset`
+- `make qdrant-restore QDRANT_SNAPSHOT_FILE=./backups/qdrant/your.snapshot`

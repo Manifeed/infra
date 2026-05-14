@@ -1,11 +1,24 @@
 # PostgreSQL Migration Module
 
-Ce dossier contient tout ce qui est lie aux migrations PostgreSQL pour Manifeed :
+This directory contains the full PostgreSQL migration runtime for Manifeed.
 
-- `alembic/` : scripts et revisions Alembic
-- `alembic.ini` : configuration Alembic
-- `Dockerfile` : image one-shot de migration
-- `requirements.txt` : dependances Python minimales pour executer les migrations
+## Layout
 
-L'orchestration se fait depuis `../docker-compose.yml` via le service `db_migrations`
-et depuis `../Makefile` via `make db-migrate` et `make db-reset`.
+- `alembic/`: shared Alembic environment and script template
+- `alembic/versions/content/`: independent content DB history
+- `alembic/versions/identity/`: independent identity DB history
+- `alembic/versions/workers/`: independent workers DB history
+- `alembic_content.ini`: Alembic config for the content database
+- `alembic_identity.ini`: Alembic config for the identity database
+- `alembic_workers.ini`: Alembic config for the workers database
+- `migrate_all.py`: creates missing databases and applies all three histories
+- `Dockerfile`: one-shot migration image
+- `requirements.txt`: minimal Python dependencies required to run migrations
+
+## Execution
+
+The module is orchestrated from `../docker-compose.yml` through the
+`db_migrations` service and from `../Makefile` through:
+
+- `make db-migrate`
+- `make db-reset`
