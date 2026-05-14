@@ -252,6 +252,8 @@ services:
     build:
       context: ${INDEXER_SERVICE_REPO_PATH:-../indexer_service}
       dockerfile: Dockerfile
+      additional_contexts:
+        shared_backend_context: ${SHARED_BACKEND_REPO_PATH:-../shared_backend}
       provenance: false
       sbom: false
     container_name: manifeed_indexer_service
@@ -304,7 +306,7 @@ services:
       provenance: false
       sbom: false
     container_name: manifeed_worker_service
-    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
     environment:
       CONTENT_READ_DATABASE_URL: ${CONTENT_READ_DATABASE_URL:-postgresql://${POSTGRES_USER:-manifeed}:${POSTGRES_PASSWORD:-manifeed}@postgres:5432/${CONTENT_POSTGRES_DB:-manifeed_content}}
       CONTENT_WRITE_DATABASE_URL: ${CONTENT_WRITE_DATABASE_URL:-postgresql://${POSTGRES_USER:-manifeed}:${POSTGRES_PASSWORD:-manifeed}@postgres:5432/${CONTENT_POSTGRES_DB:-manifeed_content}}
