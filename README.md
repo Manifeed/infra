@@ -64,8 +64,10 @@ built once and then reused. Use `make build SERVICE=<service>` or one of the
 
 ## Networking
 
-- Stateful services are internal-only by default. `postgres`, `redis`, and
-  `qdrant` do not publish host ports in the main compose file.
+- `redis` and `edge_nginx` stay on the internal Docker network without host
+  ports in the main compose file.
+- `postgres` and `qdrant` also run on the internal network, but publish
+  optional host ports (`5432`, `6333`) for local tooling and debugging.
 - `edge_nginx` is internal-only as well. Production-style ingress is expected
   to come from Traefik through the external Docker network
   `${TRAEFIK_NETWORK_NAME:-traefik_proxy}`.
@@ -101,6 +103,7 @@ make test-auth-service
 make test-user-service
 make test-admin-service
 make test-content-service
+make test-indexer-service
 make test-worker-service
 make test-worker
 ```

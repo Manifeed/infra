@@ -157,6 +157,9 @@ services:
       CONTENT_READ_DATABASE_URL: ${CONTENT_READ_DATABASE_URL:-postgresql://${POSTGRES_USER:-manifeed}:${POSTGRES_PASSWORD:-manifeed}@postgres:5432/${CONTENT_POSTGRES_DB:-manifeed_content}}
       CONTENT_WRITE_DATABASE_URL: ${CONTENT_WRITE_DATABASE_URL:-postgresql://${POSTGRES_USER:-manifeed}:${POSTGRES_PASSWORD:-manifeed}@postgres:5432/${CONTENT_POSTGRES_DB:-manifeed_content}}
       IDENTITY_READ_DATABASE_URL: ${IDENTITY_READ_DATABASE_URL:-postgresql://${POSTGRES_USER:-manifeed}:${POSTGRES_PASSWORD:-manifeed}@postgres:5432/${IDENTITY_POSTGRES_DB:-manifeed_identity}}
+      IDENTITY_WRITE_DATABASE_URL: ${IDENTITY_WRITE_DATABASE_URL:-postgresql://${POSTGRES_USER:-manifeed}:${POSTGRES_PASSWORD:-manifeed}@postgres:5432/${IDENTITY_POSTGRES_DB:-manifeed_identity}}
+      WORKERS_READ_DATABASE_URL: ${WORKERS_READ_DATABASE_URL:-postgresql://${POSTGRES_USER:-manifeed}:${POSTGRES_PASSWORD:-manifeed}@postgres:5432/${WORKERS_POSTGRES_DB:-manifeed_workers}}
+      WORKERS_WRITE_DATABASE_URL: ${WORKERS_WRITE_DATABASE_URL:-postgresql://${POSTGRES_USER:-manifeed}:${POSTGRES_PASSWORD:-manifeed}@postgres:5432/${WORKERS_POSTGRES_DB:-manifeed_workers}}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost,http://localhost:3000,http://localhost:8080}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       USER_SERVICE_URL: ${USER_SERVICE_URL:-http://user_service:8000}
