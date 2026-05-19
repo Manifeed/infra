@@ -187,11 +187,11 @@ services:
       test:
         [
           "CMD-SHELL",
-          "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/internal/health').read()\"",
+          "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/internal/ready').read()\"",
         ]
       interval: 10s
-      timeout: 5s
-      retries: 5
+      timeout: 10s
+      retries: 10
     volumes:
       - ${ADMIN_SERVICE_REPO_PATH:-../admin_service}:/app:z
       - ${RSS_FEEDS_HOST_PATH:-../../rss_feeds}:/rss_feeds:z
@@ -250,6 +250,63 @@ services:
       - 8.8.8.8
     restart: unless-stopped
 
+  theme_classifier_service:
+    image: manifeed_theme_classifier_service:local
+    build:
+      context: ${THEME_CLASSIFIER_SERVICE_REPO_PATH:-../theme_classifier_service}
+      dockerfile: Dockerfile
+      provenance: false
+      sbom: false
+    container_name: manifeed_theme_classifier_service
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    environment:
+      THEME_SERVICE_API_KEY: ${THEME_SERVICE_API_KEY:-}
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/internal/health').read()\"",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - ${THEME_CLASSIFIER_SERVICE_REPO_PATH:-../theme_classifier_service}:/app:z
+    networks:
+      - manifeed_internal
+    restart: unless-stopped
+
+  ner_service:
+    image: manifeed_ner_service:local
+    build:
+      context: ${NER_SERVICE_REPO_PATH:-../ner_service}
+      dockerfile: Dockerfile
+      provenance: false
+      sbom: false
+    container_name: manifeed_ner_service
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    environment:
+      NER_SERVICE_API_KEY: ${NER_SERVICE_API_KEY:-}
+      GLINER_MODEL_PATH: ${GLINER_MODEL_PATH:-/opt/models/gliner}
+      NER_DEVICE: ${NER_DEVICE:-cuda}
+      NVIDIA_VISIBLE_DEVICES: ${NER_NVIDIA_VISIBLE_DEVICES:-all}
+      NVIDIA_DRIVER_CAPABILITIES: ${NER_NVIDIA_DRIVER_CAPABILITIES:-compute,utility}
+    gpus: all
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/internal/ready').read()\"",
+        ]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+    volumes:
+      - ${NER_SERVICE_REPO_PATH:-../ner_service}:/app:z
+    networks:
+      - manifeed_internal
+    restart: unless-stopped
+
   indexer_service:
     image: manifeed_indexer_service:local
     build:
@@ -270,6 +327,12 @@ services:
       EMBEDDING_REDIS_QUEUE: ${EMBEDDING_REDIS_QUEUE:-embedding:source_embedding}
       EMBEDDING_SERVICE_URL: ${EMBEDDING_SERVICE_URL:-}
       EMBEDDING_SERVICE_API_KEY: ${EMBEDDING_SERVICE_API_KEY:-}
+      THEME_SERVICE_URL: ${THEME_SERVICE_URL:-http://theme_classifier_service:8000}
+      THEME_SERVICE_API_KEY: ${THEME_SERVICE_API_KEY:-}
+      NER_SERVICE_URL: ${NER_SERVICE_URL:-http://ner_service:8000}
+      NER_SERVICE_API_KEY: ${NER_SERVICE_API_KEY:-}
+      PIPELINE_SERVICE_TIMEOUT_SECONDS: ${PIPELINE_SERVICE_TIMEOUT_SECONDS:-120}
+      LANGUAGE_FASTTEXT_MODEL_PATH: ${LANGUAGE_FASTTEXT_MODEL_PATH:-}
       EMBEDDING_SERVICE_TIMEOUT_SECONDS: ${EMBEDDING_SERVICE_TIMEOUT_SECONDS:-300}
       QDRANT_URL: ${QDRANT_URL:-http://qdrant:6333}
       QDRANT_COLLECTION_NAME: ${QDRANT_COLLECTION_NAME:-article_embeddings}
@@ -280,6 +343,10 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      theme_classifier_service:
+        condition: service_started
+      ner_service:
+        condition: service_started
       qdrant:
         condition: service_started
     healthcheck:
