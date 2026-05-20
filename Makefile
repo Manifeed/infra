@@ -13,7 +13,6 @@ AUTH_SERVICE_REPO_PATH ?= ../auth_service
 CONTENT_SERVICE_REPO_PATH ?= ../content_service
 INDEXER_SERVICE_REPO_PATH ?= ../indexer_service
 THEME_CLASSIFIER_SERVICE_REPO_PATH ?= ../theme_classifier_service
-NER_SERVICE_REPO_PATH ?= ../ner_service
 FRONTEND_REPO_PATH ?= ../frontend
 USER_SERVICE_REPO_PATH ?= ../user_service
 WORKER_SERVICE_REPO_PATH ?= ../worker_service
@@ -34,13 +33,13 @@ QDRANT_SNAPSHOT_FILE ?=
 QDRANT_CURL_IMAGE ?= curlimages/curl:8.8.0
 
 CORE_INFRA_SERVICES := postgres redis qdrant
-BACKEND_APPLICATION_SERVICES := auth_service user_service admin_service content_service theme_classifier_service ner_service indexer_service worker_service public_api
+BACKEND_APPLICATION_SERVICES := auth_service user_service admin_service content_service theme_classifier_service indexer_service worker_service public_api
 APPLICATION_SERVICES := $(BACKEND_APPLICATION_SERVICES) frontend_admin edge_nginx
-BUILDABLE_APPLICATION_SERVICES := public_api auth_service user_service admin_service content_service theme_classifier_service ner_service indexer_service worker_service frontend_admin
+BUILDABLE_APPLICATION_SERVICES := public_api auth_service user_service admin_service content_service theme_classifier_service indexer_service worker_service frontend_admin
 BUILDABLE_SERVICES := $(DB_MIGRATION_SERVICE) $(BUILDABLE_APPLICATION_SERVICES)
-RESETTABLE_APPLICATION_SERVICES := edge_nginx frontend_admin public_api auth_service user_service admin_service content_service theme_classifier_service ner_service indexer_service worker_service
+RESETTABLE_APPLICATION_SERVICES := edge_nginx frontend_admin public_api auth_service user_service admin_service content_service theme_classifier_service indexer_service worker_service
 
-.PHONY: help ensure-traefik-network wait-for-postgres dev-up dev-down dev-logs up build build-all build-missing build-db-migrations build-public-api build-auth-service build-user-service build-admin-service build-content-service build-theme-classifier-service build-ner-service build-indexer-service build-worker-service build-frontend-admin build-traefik-dev down restart logs clean clean-all docker-prune-all db-migrate db-reset db-backup db-recreate-from-sql db-restore qdrant-backup qdrant-reset qdrant-restore test-services test-public-api test-admin-service test-content-service test-auth-service test-user-service test-indexer-service test-worker-service test-worker test-crawler-rss build-crawler-rss-native run-crawler-rss-native check-worker-quality check-cargo clean-workers-artifacts
+.PHONY: help ensure-traefik-network wait-for-postgres dev-up dev-down dev-logs up build build-all build-missing build-db-migrations build-public-api build-auth-service build-user-service build-admin-service build-content-service build-theme-classifier-service build-indexer-service build-worker-service build-frontend-admin build-traefik-dev down restart logs clean clean-all docker-prune-all db-migrate db-reset db-backup db-recreate-from-sql db-restore qdrant-backup qdrant-reset qdrant-restore test-services test-public-api test-admin-service test-content-service test-auth-service test-user-service test-indexer-service test-worker-service test-worker test-crawler-rss build-crawler-rss-native run-crawler-rss-native check-worker-quality check-cargo clean-workers-artifacts
 
 help:
 	@printf '%s\n' 'Available targets:'
@@ -54,7 +53,6 @@ help:
 	@printf '%s\n' '  make build-admin-service'
 	@printf '%s\n' '  make build-content-service'
 	@printf '%s\n' '  make build-theme-classifier-service'
-	@printf '%s\n' '  make build-ner-service'
 	@printf '%s\n' '  make build-indexer-service'
 	@printf '%s\n' '  make build-worker-service'
 	@printf '%s\n' '  make build-frontend-admin'
@@ -71,8 +69,7 @@ help:
 	@printf '%s\n' '  make db-reset'
 	@printf '%s\n' '  make db-backup [DB_BACKUP_FILE=./backups/file.tar.gz]'
 	@printf '%s\n' '  make db-recreate-from-sql DB_RESTORE_FILE=./backups/file.tar.gz'
-	@printf '%s\n' '  make db-restore DB_RESTORE_FILE=./backups/file.tar.gz'
-	@printf '%s\n' '  make qdrant-backup [QDRANT_BACKUP_DIR=./backups/qdrant]'
+	@printf '%s\n' '  make qdrant-backup'
 	@printf '%s\n' '  make qdrant-reset'
 	@printf '%s\n' '  make qdrant-restore QDRANT_SNAPSHOT_FILE=./backups/qdrant/your.snapshot'
 	@printf '%s\n' '  make test-services'
@@ -88,7 +85,7 @@ help:
 	@printf '%s\n' '  make check-worker-quality'
 	@printf '\n%s\n' 'Notes:'
 	@printf '%s\n' '  - make up no longer forces docker rebuilds.'
-	@printf '%s\n' '  - make dev-up also starts Traefik with a self-signed localhost certificate.'
+	@printf '%s\n' '  - GPU services are expected to be remote and must be configured via EMBEDDING_SERVICE_URL / NER_SERVICE_URL.'
 	@printf '%s\n' '  - missing local images are built automatically once, then reused.'
 	@printf '%s\n' '  - make build rebuilds all buildable images, or only SERVICE=name when provided.'
 
@@ -126,7 +123,7 @@ dev-up:
 				$(MAKE) build-missing SERVICE=$(DB_MIGRATION_SERVICE); \
 				$(DC_DEV) run --rm --no-deps $(DB_MIGRATION_SERVICE); \
 				;; \
-			auth_service|user_service|admin_service|content_service|theme_classifier_service|ner_service|indexer_service|worker_service|public_api|frontend_admin|edge_nginx) \
+			auth_service|user_service|admin_service|content_service|theme_classifier_service|indexer_service|worker_service|public_api|frontend_admin|edge_nginx) \
 				$(DC_DEV) up -d traefik_dev $(CORE_INFRA_SERVICES); \
 				$(MAKE) wait-for-postgres; \
 				$(MAKE) build-missing SERVICE=$(DB_MIGRATION_SERVICE); \
@@ -167,7 +164,7 @@ up:
 				$(MAKE) build-missing SERVICE=$(DB_MIGRATION_SERVICE); \
 				$(DC) run --rm --no-deps $(DB_MIGRATION_SERVICE); \
 				;; \
-			auth_service|user_service|admin_service|content_service|theme_classifier_service|ner_service|indexer_service|worker_service|public_api|frontend_admin|edge_nginx) \
+			auth_service|user_service|admin_service|content_service|theme_classifier_service|indexer_service|worker_service|public_api|frontend_admin|edge_nginx) \
 				$(DC) up -d $(CORE_INFRA_SERVICES); \
 				$(MAKE) wait-for-postgres; \
 				$(MAKE) build-missing SERVICE=$(DB_MIGRATION_SERVICE); \
@@ -199,7 +196,7 @@ build:
 	if [ -z "$$services" ]; then services="$(BUILDABLE_SERVICES)"; fi; \
 	for service in $$services; do \
 		case "$$service" in \
-			db_migrations|public_api|auth_service|user_service|admin_service|content_service|theme_classifier_service|ner_service|indexer_service|worker_service|frontend_admin) ;; \
+			db_migrations|public_api|auth_service|user_service|admin_service|content_service|theme_classifier_service|indexer_service|worker_service|frontend_admin) ;; \
 			*) \
 				printf 'Unknown buildable service: %s\n' "$$service"; \
 				printf 'Buildable services: %s\n' "$(BUILDABLE_SERVICES)"; \
@@ -225,7 +222,6 @@ build-missing:
 			admin_service) image="manifeed_admin_service:local" ;; \
 			content_service) image="manifeed_content_service:local" ;; \
 			theme_classifier_service) image="manifeed_theme_classifier_service:local" ;; \
-			ner_service) image="manifeed_ner_service:local" ;; \
 			indexer_service) image="manifeed_indexer_service:local" ;; \
 			worker_service) image="manifeed_worker_service:local" ;; \
 			frontend_admin) image="manifeed_frontend_admin:local" ;; \
@@ -261,9 +257,6 @@ build-content-service:
 
 build-theme-classifier-service:
 	$(DC) build theme_classifier_service
-
-build-ner-service:
-	$(DC) build ner_service
 
 build-indexer-service:
 	$(DC) build indexer_service

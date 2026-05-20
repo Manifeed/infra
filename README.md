@@ -36,6 +36,17 @@ make help
 make up
 ```
 
+Before `make up`, configure the remote GPU services explicitly:
+
+- `EMBEDDING_SERVICE_URL`
+- `EMBEDDING_SERVICE_API_KEY`
+- `NER_SERVICE_URL`
+- `NER_SERVICE_API_KEY`
+
+`infra` no longer builds or runs `ner_service`, and it does not assume that
+`ner_service` or `bge-m3_inference` share a Docker network with the rest of
+the stack.
+
 For the full local developer stack with Traefik and a self-signed certificate
 for `https://localhost`:
 
@@ -44,13 +55,6 @@ cp .env.example .env
 make dev-up
 ```
 
-The first run builds `manifeed_traefik_dev:local`, creates the local
-certificate, and exposes:
-
-- `https://localhost`
-- `http://localhost` redirected to HTTPS
-- `https://traefik.localhost` for the Traefik dashboard
-
 ## What `make up` Does
 
 `make up` starts `postgres`, `redis`, and `qdrant`, runs the one-shot
@@ -58,25 +62,16 @@ certificate, and exposes:
 `admin_service`, `content_service`, `indexer_service`, `worker_service`,
 `public_api`, `frontend_admin`, and `edge_nginx`.
 
-`make up` does not force Docker rebuilds anymore. Missing local images are
-built once and then reused. Use `make build SERVICE=<service>` or one of the
-`build-*` targets when you want a fresh rebuild.
+GPU inference remains external and is consumed only over HTTP.
 
 ## Networking
 
-- `redis` and `edge_nginx` stay on the internal Docker network without host
-  ports in the main compose file.
-- `postgres` and `qdrant` also run on the internal network, but publish
-  optional host ports (`5432`, `6333`) for local tooling and debugging.
-- `edge_nginx` is internal-only as well. Production-style ingress is expected
-  to come from Traefik through the external Docker network
-  `${TRAEFIK_NETWORK_NAME:-traefik_proxy}`.
-- `docker-compose.dev.yml` adds a local Traefik entrypoint on ports `80`,
+- Internal application services stay on the internal Docker network managed by
+  `infra`.
+- `ner_service` and `bge-m3_inference` are now expected to be reachable over
+  their configured HTTP URLs, including when they run on separate GPU hosts.
+- `docker-compose.dev.yml` still adds a local Traefik entrypoint on ports `80`,
   `443`, and `8088`.
-
-Expected public traffic flow:
-
-`Client -> Traefik HTTPS/domain -> nginx internal HTTP -> public_api -> internal services`
 
 ## Useful Commands
 
@@ -122,80 +117,3 @@ make test-worker
 - `WORKERS_REPO_PATH`
 - `RSS_FEEDS_HOST_PATH`
 - `RSS_FEEDS_REPOSITORY_PATH`
-
-## Edge Nginx
-
-The local Nginx edge configuration lives in `infra/nginx/`:
-
-- `nginx/nginx.conf`: container entrypoint config
-- `nginx/conf.d/edge.conf`: routing, security headers, rate limiting, and proxy rules
-- `nginx/snippets/`: shared directives
-- `nginx/errors/`: HTML error pages and static assets
-
-Current edge contract:
-
-- `/api/*` -> `public_api`
-- `/install` -> `public_api`
-- `/workers/api/*` -> `worker_service`
-- `/` and `/_next/*` -> `frontend_admin`
-
-After editing `nginx/conf.d/edge.conf`, reload Nginx with:
-
-```bash
-docker compose exec edge_nginx nginx -s reload
-```
-
-## PostgreSQL Migrations
-
-All PostgreSQL migration assets live in `infra/postgres_migration/`.
-
-The migration service now runs three independent Alembic histories:
-
-- `alembic_content.ini` -> `alembic/versions/content/1_0_baseline.py`
-- `alembic_identity.ini` -> `alembic/versions/identity/1_0_baseline.py`
-- `alembic_workers.ini` -> `alembic/versions/workers/1_0_baseline.py`
-
-This keeps `content`, `identity`, and `workers` fully separated while still
-using the same `db_migrations` container.
-
-Useful database targets:
-
-- `make db-migrate`: create missing databases and apply all three baselines
-- `make db-reset`: recreate `content`, `identity`, and `workers`, then apply migrations
-- `make db-backup`: export all three PostgreSQL databases into one `tar.gz`
-- `make db-restore`: recreate and restore the bundled SQL dumps
-
-## SQL Backup and Restore
-
-Create a bundled backup:
-
-```bash
-make db-backup
-```
-
-Use a custom output path:
-
-```bash
-make db-backup DB_BACKUP_FILE=./backups/preprod_20260319.tar.gz
-```
-
-Restore the full bundle:
-
-```bash
-make db-recreate-from-sql DB_RESTORE_FILE=./backups/preprod_20260319.tar.gz
-```
-
-Alias:
-
-```bash
-make db-restore DB_RESTORE_FILE=./backups/preprod_20260319.tar.gz
-```
-
-## Qdrant Backup and Restore
-
-Qdrant maintenance commands use the internal Docker network instead of host
-port publishing, so the default stack stays private.
-
-- `make qdrant-backup`
-- `make qdrant-reset`
-- `make qdrant-restore QDRANT_SNAPSHOT_FILE=./backups/qdrant/your.snapshot`
