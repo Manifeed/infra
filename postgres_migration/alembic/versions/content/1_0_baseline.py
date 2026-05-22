@@ -259,9 +259,7 @@ def upgrade() -> None:
     op.create_table(
         "embedding_manifest",
         sa.Column("article_id", sa.BigInteger(), nullable=False),
-        sa.Column("model_name", sa.String(length=160), nullable=False, server_default="BAAI/bge-m3"),
         sa.Column("status", sa.String(length=32), nullable=False),
-        sa.Column("qdrant_point_id", sa.String(length=64), nullable=True),
         sa.Column("indexed_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("failure_reason", sa.Text(), nullable=True),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")),
@@ -270,11 +268,9 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("article_id"),
     )
     op.create_index("idx_embedding_manifest_status", "embedding_manifest", ["status"], unique=False)
-    op.create_index("idx_embedding_manifest_model_name", "embedding_manifest", ["model_name"], unique=False)
 
 
 def downgrade() -> None:
-    op.drop_index("idx_embedding_manifest_model_name", table_name="embedding_manifest")
     op.drop_index("idx_embedding_manifest_status", table_name="embedding_manifest")
     op.drop_table("embedding_manifest")
 

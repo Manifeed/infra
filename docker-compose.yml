@@ -249,32 +249,6 @@ services:
       - 8.8.8.8
     restart: unless-stopped
 
-  theme_classifier_service:
-    image: manifeed_theme_classifier_service:local
-    build:
-      context: ${THEME_CLASSIFIER_SERVICE_REPO_PATH:-../theme_classifier_service}
-      dockerfile: Dockerfile
-      provenance: false
-      sbom: false
-    container_name: manifeed_theme_classifier_service
-    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
-    environment:
-      THEME_SERVICE_API_KEY: ${THEME_SERVICE_API_KEY:-}
-    healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/internal/health').read()\"",
-        ]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    volumes:
-      - ${THEME_CLASSIFIER_SERVICE_REPO_PATH:-../theme_classifier_service}:/app:z
-    networks:
-      - manifeed_internal
-    restart: unless-stopped
-
   indexer_service:
     image: manifeed_indexer_service:local
     build:
@@ -295,8 +269,6 @@ services:
       EMBEDDING_REDIS_QUEUE: ${EMBEDDING_REDIS_QUEUE:-embedding:source_embedding}
       EMBEDDING_SERVICE_URL: ${EMBEDDING_SERVICE_URL:?Set EMBEDDING_SERVICE_URL to the remote bge-m3_inference base URL}
       EMBEDDING_SERVICE_API_KEY: ${EMBEDDING_SERVICE_API_KEY:?Set EMBEDDING_SERVICE_API_KEY}
-      THEME_SERVICE_URL: ${THEME_SERVICE_URL:-http://theme_classifier_service:8000}
-      THEME_SERVICE_API_KEY: ${THEME_SERVICE_API_KEY:-}
       NER_SERVICE_URL: ${NER_SERVICE_URL:?Set NER_SERVICE_URL to the remote ner_service base URL}
       NER_SERVICE_API_KEY: ${NER_SERVICE_API_KEY:?Set NER_SERVICE_API_KEY}
       PIPELINE_SERVICE_TIMEOUT_SECONDS: ${PIPELINE_SERVICE_TIMEOUT_SECONDS:-120}
@@ -310,8 +282,6 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      theme_classifier_service:
-        condition: service_started
       qdrant:
         condition: service_started
     healthcheck:
